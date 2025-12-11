@@ -4,12 +4,14 @@ on:
   push:
     branches: [ main ]
     paths:
+      - 'nimrlive.nim'
       - 'nimr.nim'
       - 'build.sh'
       - '.github/workflows/deploy.yml'
   pull_request:
     branches: [ main ]
     paths:
+      - 'nimrlive.nim'
       - 'nimr.nim'
       - 'build.sh'
   workflow_dispatch:
@@ -43,7 +45,7 @@ jobs:
           version: 3.1.55
 
       - name: Install dependencies
-        run: nimble install naylib -y
+        run: nimble install naylib nimini -y
 
       - name: Build for Web (WASM)
         run: ./build.sh
@@ -54,7 +56,7 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add docs/
-          git diff --staged --quiet || git commit -m "Auto-build: Update docs from nimr.nim changes"
+          git diff --staged --quiet || git commit -m "Auto-build: Update docs from nimrlive.nim changes"
           git push
 
       - name: Upload artifact

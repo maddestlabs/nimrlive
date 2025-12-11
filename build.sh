@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# Build script for nimr - Nim + Raylib + WebAssembly
-# Compiles nimr.nim to WebAssembly for GitHub Pages
+# Build script for nimrlive - Nim scripting with Raylib + Nimini + WebAssembly
+# Compiles nimrlive.nim to WebAssembly for GitHub Pages
 
 set -e  # Exit on error
 
 echo "==================================="
-echo "Building nimr for WebAssembly"
+echo "Building nimrlive for WebAssembly"
 echo "==================================="
 
 # Colors for output
@@ -15,18 +15,21 @@ BLUE='\033[0;34m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-# Setup Emscripten environment (if running locally)
-if [ -d "/workspaces/nimr/emsdk" ]; then
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Setup Emscripten environment
+if [ -d "$SCRIPT_DIR/emsdk" ]; then
   echo -e "${BLUE}Setting up Emscripten environment (local)...${NC}"
-  cd /workspaces/nimr/emsdk
-  source ./emsdk_env.sh
-  cd /workspaces/nimr
+  source "$SCRIPT_DIR/emsdk/emsdk_env.sh"
 else
   echo -e "${BLUE}Using pre-configured Emscripten (CI)...${NC}"
 fi
 
-# Add Nim to PATH
-export PATH=/home/codespace/.nimble/bin:$PATH
+# Add Nim to PATH (handle both codespace and CI environments)
+if [ -d "$HOME/.nimble/bin" ]; then
+  export PATH=$HOME/.nimble/bin:$PATH
+fi
 
 # Verify emcc is available
 echo -e "${BLUE}Verifying emcc...${NC}"
@@ -41,9 +44,9 @@ mkdir -p docs
 echo -e "${BLUE}Cleaning previous builds...${NC}"
 rm -f docs/index.html docs/index.js docs/index.wasm
 
-# Compile nimr.nim to WebAssembly
-echo -e "${BLUE}Compiling nimr.nim to WebAssembly...${NC}"
-nim c -d:emscripten -d:release --opt:size --mm:orc nimr.nim
+# Compile nimrlive.nim to WebAssembly
+echo -e "${BLUE}Compiling nimrlive.nim to WebAssembly...${NC}"
+nim c -d:emscripten -d:release --opt:size --mm:orc nimrlive.nim
 
 # Check if build was successful
 if [ -f "docs/index.html" ]; then

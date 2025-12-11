@@ -2,11 +2,13 @@
 
 version       = "0.1.0"
 author        = "Maddest Labs"
-description   = "Simple animated raylib example in Nim compiled to WASM"
+description   = "Live Nim scripting with raylib using Nimini"
 license       = "MIT"
-bin           = @["nimr"]
+bin           = @["nimrlive"]
+srcDir        = "."
 
 # Dependencies
 
 requires "nim >= 2.0.0"
 requires "naylib >= 25.10"
+requires "nimini >= 0.1.0"

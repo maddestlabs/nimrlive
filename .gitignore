@@ -11,8 +11,17 @@ nimr
 # docs/index.js
 # docs/index.wasm
 
-# Emscripten SDK (should be installed in CI, not committed)
+# Emscripten SDK (should be installed locally, not committed)
+# This prevents interference with GitHub Pages and CI processes
 emsdk/
+.emscripten
+.emscripten_cache/
+.emscripten_ports/
+setup_emscripten.sh.log
+
+# Local development dependencies
+# Use vendor/ for local copies of dependencies during active development
+vendor/
 
 # Editor files
 *.swp

@@ -1,69 +1,184 @@
-# NimR
+# NimRLive
 
-Simple animated [raylib](https://www.raylib.com/) example in Nim compiled to WebAssembly for easy deployment on GitHub Pages. No need to install anything, GitHub Actions take care of everything.
+Live Nim scripting with raylib on the web. Write raylib code in Nim, run it instantly in your browser using Nimini scripting engine. Built around GitHub Gists - no installation required.
 
-Check it out live: **[Demo](https://maddestlabs.github.io/nimr/)**
+Check it out live: **[Demo](https://maddestlabs.github.io/nimrlive/)**
 
 ## Quick Start
 
-- Create a project from the [template](https://github.com/new?template_name=nimr&template_owner=maddestlabs).
-- Edit nimr.nim and save your changes.
+### Try a Gist
+
+- Create a [gist](https://gist.github.com/) with your raylib Nim code.
+- See your gist code running live at `https://maddestlabs.github.io/nimrlive?gist=GistID`.
+
+### Make it Your Own
+
+- Create a project from Nimr template.
+- Edit `nimr.nim` (or create new `.nim` files) and save your changes.
 - Enable GitHub Pages to see your changes live.
+
+### Run Locally
+
+```bash
+# Compile and run a script
+nim c -r nimrlive.nim yourscript.nim
+
+# Or just run the default example
+nim c -r nimrlive.nim
+```
 
 ## Features
 
-- Built with [Nim](https://nim-lang.org) + [naylib](https://github.com/planetis-m/naylib) + [raylib](https://www.raylib.com). Super fast compilation, small binaries, readable code.
-- Auto-compiled to WebAssembly using Emscripten.
-- Automatic deployment to GitHub Pages.
+- **Live Scripting**: Execute Nim code dynamically using [Nimini](https://github.com/maddestlabs/nimini/) scripting engine
+- **GitHub Gist Integration**: Load and run scripts directly from GitHub Gists via URL parameters
+- **Native + WASM**: Develop locally with native compilation, deploy to web with WASM
+- **Built on**: [Nim](https://nim-lang.org) + [naylib](https://github.com/planetis-m/naylib) + [raylib](https://www.raylib.com)
+- **Auto-Deploy**: GitHub Actions automatically compiles and deploys to GitHub Pages
 
-## Building Locally
+## How It Works
 
-Prerequisites
-- [Nim](https://nim-lang.org/install.html) (2.0+)
+### Architecture
 
-### Build for Desktop (Native)
+**NimRLive** combines three powerful technologies:
 
+1. **Nimini** - A Nim scripting engine that interprets Nim code at runtime
+2. **naylib** - Nim bindings for the raylib game library
+3. **Emscripten** - Compiles everything to WebAssembly for browser execution
+
+### Workflow
+
+**Native Development:**
 ```bash
-# Install Nim
-curl https://nim-lang.org/choosenim/init.sh -sSf | sh
+# Run any Nim script with raylib
+nimrlive examples/bouncing_ball.nim
 
-# Install dependencies
-nimble install naylib -y
-
-# Build for desktop
-nim c -d:release nimr.nim
+# Default runs nimr.nim
+nimrlive
 ```
 
-### Build for Web (WASM)
+**Web/WASM:**
+- Load scripts from GitHub Gists: `?gist=YOUR_GIST_ID`
+- Falls back to `nimr.nim` if no Gist specified
+- Auto-deploys via GitHub Actions to GitHub Pages
 
-Prerequisites
-- [Emscripten](https://emscripten.org/docs/getting_started/downloads.html)
+### Example Script
+
+```nim
+import raylib
+
+proc main() =
+  initWindow(800, 450, "Hello NimRLive!")
+  setTargetFPS(60)
+
+  while not windowShouldClose():
+    beginDrawing()
+    clearBackground(RayWhite)
+    drawText("Hello from Nimini!", 190, 200, 20, Gray)
+    endDrawing()
+
+  closeWindow()
+
+when isMainModule:
+  main()
+```
+
+Save this as a Gist and run it at: `https://maddestlabs.github.io/nimrlive?gist=YOUR_GIST_ID`
+
+## Development Setup
+
+### Prerequisites
+
+- [Nim](https://nim-lang.org) compiler and nimble package manager
+- Git
+
+### Local Development with Emscripten
+
+If you want to build WebAssembly locally:
+
+1. **Install Emscripten SDK**
+   ```bash
+   # Clone this repository
+   git clone https://github.com/maddestlabs/nimrlive.git
+   cd nimrlive
+
+   # Clone and setup Emscripten
+   git clone https://github.com/emscripten-core/emsdk.git
+   cd emsdk
+   ./emsdk install 3.1.55
+   ./emsdk activate 3.1.55
+   cd ..
+   ```
+
+2. **Source Emscripten environment**
+   ```bash
+   # Use the convenience script
+   source setup_emscripten.sh
+   
+   # Or manually
+   source emsdk/emsdk_env.sh
+   ```
+
+3. **Install Nim dependencies**
+   ```bash
+   nimble install naylib nimini -y
+   ```
+
+4. **Build for WebAssembly**
+   ```bash
+   ./build.sh
+   ```
+
+**Note**: The `emsdk/` directory is gitignored and won't interfere with GitHub Pages or CI/CD processes. The GitHub Actions workflow uses its own Emscripten setup, so local installation is only needed for local WASM builds.
+
+### Developing Nimini Features
+
+If you want to develop Nimini features alongside NimRLive (recommended for adding raylib bindings):
 
 ```bash
-# Install dependencies
-nimble install naylib -y
-
-# Build for web (output in docs/)
-nim c -d:emscripten nimr.nim
-
-# Serve locally (optional)
-cd docs && python3 -m http.server 8080
+# Quick setup - clones nimini and configures nim.cfg automatically
+./setup_nimini_dev.sh
 ```
+
+See [DEVELOPMENT.md](DEVELOPMENT.md) for detailed development workflows and best practices.
 
 ## Project Structure
 
 ```
-nimr/
-├── src/
-│   └── nimr.nim          # Main application source
+nimrlive/
+├── nimrlive.nim          # Main entry point (loads & executes scripts via Nimini)
+├── nimr.nim              # Default example script (bouncing ball demo)
 ├── web/
-│   └── shell.html        # HTML template for WASM
+│   └── shell.html        # HTML template with Gist fetching logic
 ├── docs/                 # Generated WASM output (GitHub Pages)
-├── nim.cfg               # Nim configuration
-├── nimr.nimble           # Package definition
+├── nim.cfg               # Nim/Emscripten configuration
+├── nimrlive.nimble       # Package definition
+├── build.sh              # Build script for WASM
 └── .github/workflows/
     └── deploy.yml        # CI/CD workflow
 ```
+
+## Development Goals
+
+This project aims to:
+
+- **Develop Nimini**: Enhance the Nimini scripting engine to handle all naylib/raylib examples
+- **Educational Tool**: Make raylib + Nim more accessible through instant web demos
+- **Rapid Prototyping**: Quick iteration with Gist-based sharing and live updates
+- **Bridge Native/Web**: Seamless workflow from local development to web deployment
+
+## Current Limitations
+
+- Nimini API coverage is growing - not all naylib functions are registered yet
+- Complex raylib features may require additional bindings
+- Performance is good but native compilation will always be faster
+
+## Contributing
+
+Contributions welcome! Priority areas:
+- Expanding naylib API coverage in Nimini
+- Testing against raylib examples
+- Improving error handling and debugging output
+- Documentation and example scripts
 
 ## License
 
