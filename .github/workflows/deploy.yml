@@ -45,7 +45,7 @@ jobs:
           version: 3.1.55
 
       - name: Install dependencies
-        run: nimble install naylib nimini -y
+        run: nimble install naylib https://github.com/maddestlabs/nimini -y
 
       - name: Build for Web (WASM)
         run: ./build.sh
