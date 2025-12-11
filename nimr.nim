@@ -1,6 +1,6 @@
 ## Simple animated raylib example in Nim using naylib
 
-import raylib
+# import raylib
 
 const
   ScreenWidth = 800
