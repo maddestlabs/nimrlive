@@ -11,4 +11,4 @@ srcDir        = "."
 
 requires "nim >= 2.0.0"
 requires "naylib >= 25.10"
-requires "nimini >= 0.1.0"
+# nimini is now vendored in this repo - see nimini/ directory

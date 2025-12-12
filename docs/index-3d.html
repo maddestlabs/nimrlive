@@ -43,17 +43,6 @@
         // Parse URL parameters
         const urlParams = new URLSearchParams(window.location.search);
         const gistId = urlParams.get('gist');
-        const requestedBuild = urlParams.get('build') || 'minimal'; // minimal, 3d, or complete
-        
-        // Determine which build to load
-        const buildFiles = {
-            'minimal': 'index',
-            '3d': 'index-3d',
-            'complete': 'index-complete'
-        };
-        
-        const buildFile = buildFiles[requestedBuild] || 'index';
-        console.log('Using build:', requestedBuild, '(' + buildFile + ')');
         
         // Gist loading state
         let gistCode = null;
@@ -64,51 +53,10 @@
             console.log('Gist parameter detected:', gistId);
         }
         
-        // Check if we need to reload with a different build
-        function checkBuildRequirements(code) {
-            if (typeof Module._shouldRebuildForCode !== 'function') {
-                console.log('shouldRebuildForCode not available, skipping check');
-                return;
-            }
-            
-            try {
-                // Allocate string in WASM memory
-                var len = Module.lengthBytesUTF8(code) + 1;
-                var strPtr = Module._malloc(len);
-                Module.stringToUTF8(code, strPtr, len);
-                
-                // Call the check function
-                var resultPtr = Module._shouldRebuildForCode(strPtr);
-                var requiredBuild = Module.UTF8ToString(resultPtr);
-                
-                Module._free(strPtr);
-                
-                if (requiredBuild && requiredBuild !== '') {
-                    console.log('Current build insufficient. Need:', requiredBuild);
-                    document.getElementById('status').textContent = 'Switching to ' + requiredBuild + ' build...';
-                    
-                    // Reload with the correct build
-                    var newUrl = new URL(window.location);
-                    newUrl.searchParams.set('build', requiredBuild);
-                    window.location.href = newUrl.toString();
-                    return true; // Will reload
-                }
-            } catch (e) {
-                console.error('Error checking build requirements:', e);
-            }
-            
-            return false; // No reload needed
-        }
-        
         // Try to load gist code into WASM when both are ready
         function tryLoadGist() {
             console.log('tryLoadGist called - moduleReady:', moduleReady, 'gistReady:', gistReady, 'hasCode:', !!gistCode);
             if (moduleReady && gistReady && gistCode) {
-                // First check if we need a different build
-                if (checkBuildRequirements(gistCode)) {
-                    return; // Will reload with correct build
-                }
-                
                 console.log('=== Loading code from gist (' + gistCode.length + ' bytes) ===');
                 try {
                     if (typeof Module.ccall === 'function') {
@@ -120,7 +68,7 @@
                             { async: true }
                         );
                         console.log('=== Successfully called loadCodeFromJS ===');
-                        document.getElementById('status').textContent = 'Running from gist (' + requestedBuild + ' build) - Press ESC to quit';
+                        document.getElementById('status').textContent = 'Running from gist - Press ESC to quit';
                     } else if (typeof Module._loadCodeFromJS === 'function') {
                         // Fallback: manually allocate string in WASM memory
                         console.log('Using manual string allocation');
@@ -130,7 +78,7 @@
                         Module._loadCodeFromJS(strPtr);
                         Module._free(strPtr);
                         console.log('=== Successfully loaded gist content via manual allocation ===');
-                        document.getElementById('status').textContent = 'Running from gist (' + requestedBuild + ' build) - Press ESC to quit';
+                        document.getElementById('status').textContent = 'Running from gist - Press ESC to quit';
                     } else {
                         console.error('Module.ccall and Module._loadCodeFromJS not available');
                         document.getElementById('status').innerHTML = '<span style="color: #ff6b6b;">Gist load failed</span>';
@@ -260,7 +208,7 @@
                 if (gistId) {
                     tryLoadGist();
                 } else {
-                    document.getElementById('status').textContent = 'Ready (' + requestedBuild + ' build) - Load a gist with ?gist=YOUR_GIST_ID';
+                    document.getElementById('status').textContent = 'Ready - Load a gist with ?gist=YOUR_GIST_ID';
                 }
             },
             setStatus: function(text) {},
@@ -270,18 +218,7 @@
         window.onerror = function(event) {
             console.error('Error:', event);
         };
-        
-        // Dynamically load the appropriate build's JS file
-        (function() {
-            var script = document.createElement('script');
-            script.src = buildFile + '.js';
-            script.onerror = function() {
-                console.error('Failed to load build file:', buildFile + '.js');
-                document.getElementById('status').innerHTML = '<span style="color: #ff6b6b;">Build file not found: ' + requestedBuild + '</span>';
-                document.getElementById('status').innerHTML += '<br><span style="font-size: 10px;">Available: minimal, 3d, complete</span>';
-            };
-            document.body.appendChild(script);
-        })();
     </script>
+    <script async type="text/javascript" src="index-3d.js"></script>
 </body>
 </html>

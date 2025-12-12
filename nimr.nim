@@ -1,7 +1,8 @@
 ## Simple animated raylib example in Nim using naylib
-
-# import raylib
-
+# ✓ IMPLEMENTED in Nimini:
+# - Named parameters in function calls: Vector2(x: 10, y: 20)
+# - Object constructors: Creating object instances with field initializers
+# - The result variable: Implicit return value in procs
 const
   ScreenWidth = 800
   ScreenHeight = 450
@@ -68,5 +69,4 @@ proc main() =
 
   closeWindow()
 
-when isMainModule:
-  main()
+main()
