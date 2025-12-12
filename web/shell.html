@@ -68,7 +68,7 @@
                             { async: true }
                         );
                         console.log('=== Successfully called loadCodeFromJS ===');
-                        document.getElementById('status').textContent = 'Running from gist - Press ESC to quit';
+                        document.getElementById('status').textContent = '';//'Running from gist - Press ESC to quit';
                     } else if (typeof Module._loadCodeFromJS === 'function') {
                         // Fallback: manually allocate string in WASM memory
                         console.log('Using manual string allocation');
@@ -78,7 +78,7 @@
                         Module._loadCodeFromJS(strPtr);
                         Module._free(strPtr);
                         console.log('=== Successfully loaded gist content via manual allocation ===');
-                        document.getElementById('status').textContent = 'Running from gist - Press ESC to quit';
+                        document.getElementById('status').textContent = '';//'Running from gist - Press ESC to quit';
                     } else {
                         console.error('Module.ccall and Module._loadCodeFromJS not available');
                         document.getElementById('status').innerHTML = '<span style="color: #ff6b6b;">Gist load failed</span>';
