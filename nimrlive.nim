@@ -1,26 +1,8 @@
 ## NimRLive - Live Nim scripting with raylib using Nimini
 ## Entry point that loads and executes Nim scripts with naylib bindings
-##
-## Build variants:
-##   -d:nimrlive_minimal  - Basic 2D, text, shapes (default, smallest)
-##   -d:nimrlive_3d       - Adds 3D models, camera, lighting
-##   -d:nimrlive_complete - Full raylib with audio, textures, shaders
 
 import nimini
 import raylib
-
-# Import appropriate bindings based on build configuration
-when defined(nimrlive_complete):
-  import raylib_bindings  # Full bindings
-  const BUILD_TYPE = "complete"
-elif defined(nimrlive_3d):
-  import raylib_bindings  # 3D bindings (TODO: create separate file)
-  const BUILD_TYPE = "3d"
-else:
-  # Default to minimal build
-  import raylib_bindings_minimal
-  const BUILD_TYPE = "minimal"
-
 import std/[os, strutils]
 
 when defined(emscripten):
@@ -28,52 +10,13 @@ when defined(emscripten):
   var waitingForGist = false
   var gistCodeLoaded = false
   
+  # Forward declaration
+  proc registerNaylibApi()
+  
   # Export function to set waiting state before initialization
   proc setWaitingForGist() {.exportc.} =
     echo "Setting waitingForGist flag"
     waitingForGist = true
-  
-  # Detect required build based on code imports
-  proc detectRequiredBuild(code: string): string =
-    ## Analyze code to determine which build is needed
-    ## Returns: "minimal", "3d", or "complete"
-    
-    # Check for audio functions
-    if code.contains("loadSound") or code.contains("playSound") or 
-       code.contains("loadMusic") or code.contains("playMusic"):
-      return "complete"
-    
-    # Check for texture/image loading
-    if code.contains("loadTexture") or code.contains("loadImage") or
-       code.contains("drawTexture"):
-      return "complete"
-    
-    # Check for 3D functions
-    if code.contains("drawCube") or code.contains("drawModel") or
-       code.contains("Camera3D") or code.contains("drawGrid"):
-      return "3d"
-    
-    # Check for shader functions
-    if code.contains("loadShader") or code.contains("beginShaderMode"):
-      return "complete"
-    
-    # Default to minimal
-    return "minimal"
-  
-  # Export function to check if rebuild is needed
-  proc shouldRebuildForCode(code: cstring): cstring {.exportc.} =
-    ## Check if the current build supports the code
-    ## Returns empty string if OK, or required build name if rebuild needed
-    let nimCode = $code
-    let requiredBuild = detectRequiredBuild(nimCode)
-    
-    echo "Current build: ", BUILD_TYPE
-    echo "Required build: ", requiredBuild
-    
-    if requiredBuild == BUILD_TYPE:
-      return cstring("")
-    else:
-      return cstring(requiredBuild)
   
   # Export function to load code dynamically from JavaScript
   proc loadCodeFromJS(code: cstring) {.exportc.} =
@@ -94,17 +37,29 @@ when defined(emscripten):
     if runtimeEnv == nil:
       echo "Initializing runtime..."
       initRuntime()
-      registerRaylibBindings()
-      echo "Runtime initialized and API registered (", BUILD_TYPE, " build)"
+      registerNaylibApi()
+      echo "Runtime initialized and API registered"
     else:
       echo "Runtime already initialized, re-registering API..."
-      registerRaylibBindings()
+      registerNaylibApi()
+    
+    # Debug: Check if drawFPS is registered
+    echo "Checking runtime environment..."
+    if runtimeEnv != nil:
+      echo "runtimeEnv is not nil"
+    else:
+      echo "ERROR: runtimeEnv is nil!"
     
     # Execute the loaded code
     try:
       echo "Tokenizing and parsing gist code..."
       let tokens = tokenizeDsl(nimCode)
       echo "Got ", tokens.len, " tokens"
+      
+      # Debug: Print tokens to see what we're parsing
+      echo "DEBUG: First 20 tokens:"
+      for i in 0..<min(20, tokens.len):
+        echo "  [", i, "] ", tokens[i].kind, " '", tokens[i].lexeme, "'"
       
       let program = parseDsl(tokens)
       echo "Parsed program, executing..."
@@ -116,6 +71,107 @@ when defined(emscripten):
       echo "Gist code execution error: ", e.msg
       echo "Stack trace: ", e.getStackTrace()
 
+# Color constants that need to persist (not be destroyed after registerNaylibApi returns)
+var rayWhiteColor = RayWhite
+var whiteColor = White
+var blackColor = Black
+var grayColor = Gray
+var darkGrayColor = DarkGray
+var maroonColor = Maroon
+
+proc registerNaylibApi() =
+  ## Register naylib/raylib API functions with Nimini runtime
+  ## This makes raylib functions callable from loaded scripts
+  
+  echo "=== Registering Naylib API ==="
+  
+  # Window management
+  registerNative("initWindow", proc(env: ref Env; args: seq[Value]): Value =
+    let width = args[0].i.int32
+    let height = args[1].i.int32
+    let title = args[2].s
+    initWindow(width, height, title)
+    valNil()
+  )
+  
+  registerNative("closeWindow", proc(env: ref Env; args: seq[Value]): Value =
+    closeWindow()
+    valNil()
+  )
+  
+  registerNative("windowShouldClose", proc(env: ref Env; args: seq[Value]): Value =
+    valBool(windowShouldClose())
+  )
+  
+  registerNative("setTargetFPS", proc(env: ref Env; args: seq[Value]): Value =
+    setTargetFPS(args[0].i.int32)
+    valNil()
+  )
+  
+  # Drawing functions
+  registerNative("beginDrawing", proc(env: ref Env; args: seq[Value]): Value =
+    beginDrawing()
+    valNil()
+  )
+  
+  registerNative("endDrawing", proc(env: ref Env; args: seq[Value]): Value =
+    endDrawing()
+    valNil()
+  )
+  
+  registerNative("clearBackground", proc(env: ref Env; args: seq[Value]): Value =
+    # Extract Color from args - for now assume it's passed as a pointer
+    # This is where you'll enhance Nimini to support custom types better
+    let colorPtr = cast[ptr Color](args[0].ptrVal)
+    clearBackground(colorPtr[])
+    valNil()
+  )
+  
+  # Text drawing
+  registerNative("drawText", proc(env: ref Env; args: seq[Value]): Value =
+    let text = args[0].s
+    let posX = args[1].i.int32
+    let posY = args[2].i.int32
+    let fontSize = args[3].i.int32
+    let colorPtr = cast[ptr Color](args[4].ptrVal)
+    drawText(text, posX, posY, fontSize, colorPtr[])
+    valNil()
+  )
+  
+  registerNative("drawFPS", proc(env: ref Env; args: seq[Value]): Value =
+    let posX = args[0].i.int32
+    let posY = args[1].i.int32
+    drawFPS(posX, posY)
+    valNil()
+  )
+  
+  # Register Color constants as pointers (using global vars defined above)
+  registerNative("RayWhite", proc(env: ref Env; args: seq[Value]): Value =
+    valPointer(addr rayWhiteColor)
+  )
+  
+  registerNative("White", proc(env: ref Env; args: seq[Value]): Value =
+    valPointer(addr whiteColor)
+  )
+  
+  registerNative("Black", proc(env: ref Env; args: seq[Value]): Value =
+    valPointer(addr blackColor)
+  )
+  
+  registerNative("Gray", proc(env: ref Env; args: seq[Value]): Value =
+    valPointer(addr grayColor)
+  )
+  
+  registerNative("DarkGray", proc(env: ref Env; args: seq[Value]): Value =
+    valPointer(addr darkGrayColor)
+  )
+  
+  registerNative("Maroon", proc(env: ref Env; args: seq[Value]): Value =
+    valPointer(addr maroonColor)
+  )
+  
+  echo "=== Naylib API registration complete ==="
+
 proc loadAndExecuteScript(scriptPath: string) =
   ## Load a Nim script file and execute it with Nimini
   if not fileExists(scriptPath):
@@ -126,7 +182,7 @@ proc loadAndExecuteScript(scriptPath: string) =
   
   # Initialize Nimini runtime
   initRuntime()
-  registerRaylibBindings()
+  registerNaylibApi()
   
   # Tokenize, parse, and execute
   try:
@@ -150,22 +206,16 @@ proc main() =
       # Don't execute any script in standalone mode
       # Just initialize and let the user load a gist
       initRuntime()
-      registerRaylibBindings()
+      registerNaylibApi()
       echo "Ready - waiting for gist or user interaction"
   else:
     # Native mode: check command line arguments
     if paramCount() > 0:
       let scriptPath = paramStr(1)
-      echo "Loading script: ", scriptPath
       loadAndExecuteScript(scriptPath)
     else:
-      # No arguments, show usage and exit
-      echo "NimRLive - Live Nim scripting with raylib using Nimini"
-      echo ""
-      echo "Usage: nimrlive <script.nim>"
-      echo ""
-      echo "Example: ./nimrlive nimr.nim"
-      quit(0)
+      # No arguments, load default nimr.nim
+      loadAndExecuteScript("nimr.nim")
 
 when isMainModule:
   main()
