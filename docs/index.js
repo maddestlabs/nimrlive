@@ -964,49 +964,49 @@ function dbg(...args) {
 // === Body ===
 
 var ASM_CONSTS = {
-  125184: () => { if (document.fullscreenElement) return 1; },  
- 125230: () => { return Module.canvas.width; },  
- 125262: () => { return parseInt(Module.canvas.style.width); },  
- 125310: () => { document.exitFullscreen(); },  
- 125337: () => { setTimeout(function() { Module.requestFullscreen(false, false); }, 100); },  
- 125410: () => { if (document.fullscreenElement) return 1; },  
- 125456: () => { return Module.canvas.width; },  
- 125488: () => { return screen.width; },  
- 125513: () => { document.exitFullscreen(); },  
- 125540: () => { setTimeout(function() { Module.requestFullscreen(false, true); setTimeout(function() { canvas.style.width="unset"; }, 100); }, 100); },  
- 125673: () => { return window.innerWidth; },  
- 125699: () => { return window.innerHeight; },  
- 125726: () => { if (document.fullscreenElement) return 1; },  
- 125772: () => { return Module.canvas.width; },  
- 125804: () => { return parseInt(Module.canvas.style.width); },  
- 125852: () => { if (document.fullscreenElement) return 1; },  
- 125898: () => { return Module.canvas.width; },  
- 125930: () => { return screen.width; },  
- 125955: () => { return window.innerWidth; },  
- 125981: () => { return window.innerHeight; },  
- 126008: () => { if (document.fullscreenElement) return 1; },  
- 126054: () => { return Module.canvas.width; },  
- 126086: () => { return screen.width; },  
- 126111: () => { document.exitFullscreen(); },  
- 126138: () => { if (document.fullscreenElement) return 1; },  
- 126184: () => { return Module.canvas.width; },  
- 126216: () => { return parseInt(Module.canvas.style.width); },  
- 126264: () => { document.exitFullscreen(); },  
- 126291: ($0) => { Module.canvas.style.opacity = $0; },  
- 126329: () => { return screen.width; },  
- 126354: () => { return screen.height; },  
- 126380: () => { return window.screenX; },  
- 126407: () => { return window.screenY; },  
- 126434: () => { return window.devicePixelRatio; },  
- 126470: ($0) => { navigator.clipboard.writeText(UTF8ToString($0)); },  
- 126523: ($0) => { Module.canvas.style.cursor = UTF8ToString($0); },  
- 126574: () => { Module.canvas.style.cursor = 'none'; },  
- 126611: ($0, $1, $2, $3) => { try { navigator.getGamepads()[$0].vibrationActuator.playEffect('dual-rumble', { startDelay: 0, duration: $3, weakMagnitude: $1, strongMagnitude: $2 }); } catch (e) { try { navigator.getGamepads()[$0].hapticActuators[0].pulse($2, $3); } catch (e) { } } },  
- 126867: ($0) => { Module.canvas.style.cursor = UTF8ToString($0); },  
- 126918: () => { if (document.pointerLockElement) return 1; },  
- 126965: () => { if (document.fullscreenElement) return 1; },  
- 127011: () => { return window.innerWidth; },  
- 127037: () => { return window.innerHeight; }
+  113848: () => { if (document.fullscreenElement) return 1; },  
+ 113894: () => { return Module.canvas.width; },  
+ 113926: () => { return parseInt(Module.canvas.style.width); },  
+ 113974: () => { document.exitFullscreen(); },  
+ 114001: () => { setTimeout(function() { Module.requestFullscreen(false, false); }, 100); },  
+ 114074: () => { if (document.fullscreenElement) return 1; },  
+ 114120: () => { return Module.canvas.width; },  
+ 114152: () => { return screen.width; },  
+ 114177: () => { document.exitFullscreen(); },  
+ 114204: () => { setTimeout(function() { Module.requestFullscreen(false, true); setTimeout(function() { canvas.style.width="unset"; }, 100); }, 100); },  
+ 114337: () => { return window.innerWidth; },  
+ 114363: () => { return window.innerHeight; },  
+ 114390: () => { if (document.fullscreenElement) return 1; },  
+ 114436: () => { return Module.canvas.width; },  
+ 114468: () => { return parseInt(Module.canvas.style.width); },  
+ 114516: () => { if (document.fullscreenElement) return 1; },  
+ 114562: () => { return Module.canvas.width; },  
+ 114594: () => { return screen.width; },  
+ 114619: () => { return window.innerWidth; },  
+ 114645: () => { return window.innerHeight; },  
+ 114672: () => { if (document.fullscreenElement) return 1; },  
+ 114718: () => { return Module.canvas.width; },  
+ 114750: () => { return screen.width; },  
+ 114775: () => { document.exitFullscreen(); },  
+ 114802: () => { if (document.fullscreenElement) return 1; },  
+ 114848: () => { return Module.canvas.width; },  
+ 114880: () => { return parseInt(Module.canvas.style.width); },  
+ 114928: () => { document.exitFullscreen(); },  
+ 114955: ($0) => { Module.canvas.style.opacity = $0; },  
+ 114993: () => { return screen.width; },  
+ 115018: () => { return screen.height; },  
+ 115044: () => { return window.screenX; },  
+ 115071: () => { return window.screenY; },  
+ 115098: () => { return window.devicePixelRatio; },  
+ 115134: ($0) => { navigator.clipboard.writeText(UTF8ToString($0)); },  
+ 115187: ($0) => { Module.canvas.style.cursor = UTF8ToString($0); },  
+ 115238: () => { Module.canvas.style.cursor = 'none'; },  
+ 115275: ($0, $1, $2, $3) => { try { navigator.getGamepads()[$0].vibrationActuator.playEffect('dual-rumble', { startDelay: 0, duration: $3, weakMagnitude: $1, strongMagnitude: $2 }); } catch (e) { try { navigator.getGamepads()[$0].hapticActuators[0].pulse($2, $3); } catch (e) { } } },  
+ 115531: ($0) => { Module.canvas.style.cursor = UTF8ToString($0); },  
+ 115582: () => { if (document.pointerLockElement) return 1; },  
+ 115629: () => { if (document.fullscreenElement) return 1; },  
+ 115675: () => { return window.innerWidth; },  
+ 115701: () => { return window.innerHeight; }
 };
 function GetCanvasIdJs() { var canvasId = "#" + Module.canvas.id; var lengthBytes = lengthBytesUTF8(canvasId) + 1; var stringOnWasmHeap = _malloc(lengthBytes); stringToUTF8(canvasId, stringOnWasmHeap, lengthBytes); return stringOnWasmHeap; }
 
@@ -10450,8 +10450,8 @@ var _asyncify_start_unwind = createExportWrapper('asyncify_start_unwind');
 var _asyncify_stop_unwind = createExportWrapper('asyncify_stop_unwind');
 var _asyncify_start_rewind = createExportWrapper('asyncify_start_rewind');
 var _asyncify_stop_rewind = createExportWrapper('asyncify_stop_rewind');
-var ___start_em_js = Module['___start_em_js'] = 127064;
-var ___stop_em_js = Module['___stop_em_js'] = 127287;
+var ___start_em_js = Module['___start_em_js'] = 115728;
+var ___stop_em_js = Module['___stop_em_js'] = 115951;
 
 // include: postamble.js
 // === Auto-generated postamble setup entry stuff ===

@@ -3,15 +3,13 @@
 
 import nimini
 import raylib
+import raylib_bindings
 import std/[os, strutils]
 
 when defined(emscripten):
   # State management for gist loading
   var waitingForGist = false
   var gistCodeLoaded = false
-  
-  # Forward declaration
-  proc registerNaylibApi()
   
   # Export function to set waiting state before initialization
   proc setWaitingForGist() {.exportc.} =
@@ -37,11 +35,11 @@ when defined(emscripten):
     if runtimeEnv == nil:
       echo "Initializing runtime..."
       initRuntime()
-      registerNaylibApi()
+      registerRaylibBindings()
       echo "Runtime initialized and API registered"
     else:
       echo "Runtime already initialized, re-registering API..."
-      registerNaylibApi()
+      registerRaylibBindings()
     
     # Debug: Check if drawFPS is registered
     echo "Checking runtime environment..."
@@ -71,107 +69,6 @@ when defined(emscripten):
       echo "Gist code execution error: ", e.msg
       echo "Stack trace: ", e.getStackTrace()
 
-# Color constants that need to persist (not be destroyed after registerNaylibApi returns)
-var rayWhiteColor = RayWhite
-var whiteColor = White
-var blackColor = Black
-var grayColor = Gray
-var darkGrayColor = DarkGray
-var maroonColor = Maroon
-
-proc registerNaylibApi() =
-  ## Register naylib/raylib API functions with Nimini runtime
-  ## This makes raylib functions callable from loaded scripts
-  
-  echo "=== Registering Naylib API ==="
-  
-  # Window management
-  registerNative("initWindow", proc(env: ref Env; args: seq[Value]): Value =
-    let width = args[0].i.int32
-    let height = args[1].i.int32
-    let title = args[2].s
-    initWindow(width, height, title)
-    valNil()
-  )
-  
-  registerNative("closeWindow", proc(env: ref Env; args: seq[Value]): Value =
-    closeWindow()
-    valNil()
-  )
-  
-  registerNative("windowShouldClose", proc(env: ref Env; args: seq[Value]): Value =
-    valBool(windowShouldClose())
-  )
-  
-  registerNative("setTargetFPS", proc(env: ref Env; args: seq[Value]): Value =
-    setTargetFPS(args[0].i.int32)
-    valNil()
-  )
-  
-  # Drawing functions
-  registerNative("beginDrawing", proc(env: ref Env; args: seq[Value]): Value =
-    beginDrawing()
-    valNil()
-  )
-  
-  registerNative("endDrawing", proc(env: ref Env; args: seq[Value]): Value =
-    endDrawing()
-    valNil()
-  )
-  
-  registerNative("clearBackground", proc(env: ref Env; args: seq[Value]): Value =
-    # Extract Color from args - for now assume it's passed as a pointer
-    # This is where you'll enhance Nimini to support custom types better
-    let colorPtr = cast[ptr Color](args[0].ptrVal)
-    clearBackground(colorPtr[])
-    valNil()
-  )
-  
-  # Text drawing
-  registerNative("drawText", proc(env: ref Env; args: seq[Value]): Value =
-    let text = args[0].s
-    let posX = args[1].i.int32
-    let posY = args[2].i.int32
-    let fontSize = args[3].i.int32
-    let colorPtr = cast[ptr Color](args[4].ptrVal)
-    drawText(text, posX, posY, fontSize, colorPtr[])
-    valNil()
-  )
-  
-  registerNative("drawFPS", proc(env: ref Env; args: seq[Value]): Value =
-    let posX = args[0].i.int32
-    let posY = args[1].i.int32
-    drawFPS(posX, posY)
-    valNil()
-  )
-  
-  # Register Color constants as pointers (using global vars defined above)
-  registerNative("RayWhite", proc(env: ref Env; args: seq[Value]): Value =
-    valPointer(addr rayWhiteColor)
-  )
-  
-  registerNative("White", proc(env: ref Env; args: seq[Value]): Value =
-    valPointer(addr whiteColor)
-  )
-  
-  registerNative("Black", proc(env: ref Env; args: seq[Value]): Value =
-    valPointer(addr blackColor)
-  )
-  
-  registerNative("Gray", proc(env: ref Env; args: seq[Value]): Value =
-    valPointer(addr grayColor)
-  )
-  
-  registerNative("DarkGray", proc(env: ref Env; args: seq[Value]): Value =
-    valPointer(addr darkGrayColor)
-  )
-  
-  registerNative("Maroon", proc(env: ref Env; args: seq[Value]): Value =
-    valPointer(addr maroonColor)
-  )
-  
-  echo "=== Naylib API registration complete ==="
-
 proc loadAndExecuteScript(scriptPath: string) =
   ## Load a Nim script file and execute it with Nimini
   if not fileExists(scriptPath):
@@ -182,7 +79,7 @@ proc loadAndExecuteScript(scriptPath: string) =
   
   # Initialize Nimini runtime
   initRuntime()
-  registerNaylibApi()
+  registerRaylibBindings()
   
   # Tokenize, parse, and execute
   try:
@@ -206,16 +103,22 @@ proc main() =
       # Don't execute any script in standalone mode
       # Just initialize and let the user load a gist
       initRuntime()
-      registerNaylibApi()
+      registerRaylibBindings()
       echo "Ready - waiting for gist or user interaction"
   else:
     # Native mode: check command line arguments
     if paramCount() > 0:
       let scriptPath = paramStr(1)
+      echo "Loading script: ", scriptPath
       loadAndExecuteScript(scriptPath)
     else:
-      # No arguments, load default nimr.nim
-      loadAndExecuteScript("nimr.nim")
+      # No arguments, show usage and exit
+      echo "NimRLive - Live Nim scripting with raylib using Nimini"
+      echo ""
+      echo "Usage: nimrlive <script.nim>"
+      echo ""
+      echo "Example: ./nimrlive nimr.nim"
+      quit(0)
 
 when isMainModule:
   main()
