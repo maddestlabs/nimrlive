@@ -5,8 +5,8 @@ Live Nim scripting with raylib on the web. Write [raylib](https://www.raylib.com
 Check it out live: **[Demo](https://maddestlabs.github.io/nimrlive/)**
 
 Examples on GitHub Gist:
-- [nimr_eyes.nim](https://maddestlabs.github.io/tstorie?gist=9b0aee2ba116791b092f1b238975c295) | [Source Gist](https://gist.github.com/R3V1Z3/9b0aee2ba116791b092f1b238975c295)
-- [nimr_ball.nim](https://maddestlabs.github.io/tstorie?gist=9da9160a65563ba711bfc68fd6f01c83) | [Source Gist](https://gist.github.com/R3V1Z3/9da9160a65563ba711bfc68fd6f01c83)
+- [nimr_eyes.nim](https://maddestlabs.github.io/nimrlive?gist=9b0aee2ba116791b092f1b238975c295) | [Source Gist](https://gist.github.com/R3V1Z3/9b0aee2ba116791b092f1b238975c295)
+- [nimr_ball.nim](https://maddestlabs.github.io/nimrlive?gist=9da9160a65563ba711bfc68fd6f01c83) | [Source Gist](https://gist.github.com/R3V1Z3/9da9160a65563ba711bfc68fd6f01c83)
 
 ## Quick Start
 
