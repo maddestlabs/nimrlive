@@ -2,7 +2,6 @@
 # Clean, strict-mode-safe tokenizer for the Mini-Nim DSL
 
 import std/[strutils]
-import ast
 
 # ------------------------------------------------------------------------------
 # Token Types
@@ -186,10 +185,7 @@ proc tokenizeDsl*(src: string): seq[Token] =
         inc i; inc col
 
       if i >= src.len:
-        var err = newException(NiminiTokenizeError, "Unterminated string at line " & $line)
-        err.line = line
-        err.col = startCol
-        raise err
+        quit "Unterminated string at line " & $line
 
       # skip closing quote
       inc i; inc col
@@ -219,23 +215,11 @@ proc tokenizeDsl*(src: string): seq[Token] =
         else:
           break
 
-      # Check for type suffix (e.g., 123'i32, 3.14'f32)
-      var typeSuffix = ""
-      if i < src.len and src[i] == '\'':
-        inc i; inc col  # Skip the apostrophe
-        let suffixStart = i
-        # Read the type suffix (e.g., i32, f64, u8)
-        while i < src.len and src[i].isIdentChar():
-          inc i; inc col
-        typeSuffix = src[suffixStart ..< i]
-
-      let numPart = src[start ..< (if typeSuffix.len > 0: i - typeSuffix.len - 1 else: i)]
-      let lexeme = if typeSuffix.len > 0: numPart & "'" & typeSuffix else: numPart
-      
+      let lex = src[start ..< i]
       if sawDot:
-        addToken(res, tkFloat, lexeme, line, startCol)
+        addToken(res, tkFloat, lex, line, startCol)
       else:
-        addToken(res, tkInt, lexeme, line, startCol)
+        addToken(res, tkInt, lex, line, startCol)
       continue
 
     # ------------------------------
@@ -265,13 +249,7 @@ proc tokenizeDsl*(src: string): seq[Token] =
     if i+1 < src.len:
       let two = src[i] & src[i+1]
       case two
-      of "==", "!=", "<=", ">=":
-        addToken(res, tkOp, two, line, startCol)
-        inc i, 2
-        col += 2
-        continue
-      of "+=", "-=", "*=", "/=", "%=":
-        # Compound assignment operators
+      of "==", "!=", "<=", ">=", "+=", "-=", "*=", "/=", "%=", "&=":
         addToken(res, tkOp, two, line, startCol)
         inc i, 2
         col += 2
@@ -308,10 +286,7 @@ proc tokenizeDsl*(src: string): seq[Token] =
       inc i; inc col
       continue
     else:
-      var err = newException(NiminiTokenizeError, "Unexpected character '" & $c & "' at " & $line & ":" & $col)
-      err.line = line
-      err.col = col
-      raise err
+      quit "Unexpected character '" & $c & "' at " & $line & ":" & $col
 
   # End of input: emit any remaining dedents
   while indentStack.len > 1:

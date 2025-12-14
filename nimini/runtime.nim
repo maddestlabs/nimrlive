@@ -1,6 +1,6 @@
 # Clean, strict, Nim compatible runtime for Nimini
 
-import std/[tables, math, strutils]
+import std/[tables, math, strutils, sequtils]
 import ast
 
 # ------------------------------------------------------------------------------
@@ -26,8 +26,9 @@ type
     isNative*: bool
     native*: NativeFunc
     params*: seq[string]
+    varParams*: seq[bool]  # Track which params are var (pass-by-reference)
     stmts*: seq[Stmt]
-    returnType*: TypeNode  # For implicit result variable
+    returnType*: TypeNode  # Return type (nil if no return type)
 
   Value* = ref object
     kind*: ValueKind
@@ -111,24 +112,31 @@ proc valNativeFunc*(fn: NativeFunc): Value =
     isNative: true,
     native: fn,
     params: @[],
+    varParams: @[],
     stmts: @[]
   ))
 
-proc valUserFunc*(params: seq[string]; stmts: seq[Stmt]; returnType: TypeNode = nil): Value =
+proc valUserFunc*(params: seq[string]; stmts: seq[Stmt]): Value =
   Value(kind: vkFunction, fnVal: FunctionVal(
     isNative: false,
     native: nil,
     params: params,
-    stmts: stmts,
-    returnType: returnType
+    varParams: newSeq[bool](params.len),  # Initialize with all false
+    stmts: stmts
   ))
+
+proc valFunction*(fnVal: FunctionVal): Value =
+  ## Create a function value from a FunctionVal object
+  Value(kind: vkFunction, fnVal: fnVal)
 
 proc valMap*(initialMap: Table[string, Value] = initTable[string, Value]()): Value =
   Value(kind: vkMap, map: initialMap)
 
-# Alias for compatibility with plugin code
 proc newMapValue*(): Value =
   valMap()
+
+proc valArray*(elements: seq[Value] = @[]): Value =
+  Value(kind: vkArray, arr: elements)
 
 # Map access operators
 proc `[]`*(v: Value; key: string): Value =
@@ -191,7 +199,6 @@ proc getVar*(env: ref Env; name: string): Value =
   var e = env
   while e != nil:
     if name in e.vars:
-      # echo "Found variable '", name, "' with kind: ", e.vars[name].kind
       return e.vars[name]
     e = e.parent
   quit "Runtime Error: Undefined variable '" & name & "'"
@@ -200,7 +207,24 @@ proc getVar*(env: ref Env; name: string): Value =
 # Conversion Helpers
 # ------------------------------------------------------------------------------
 
-proc toBool(v: Value): bool =
+proc valuesEqual*(a, b: Value): bool =
+  ## Compare two values for equality (used in case statements)
+  if a.kind != b.kind:
+    return false
+  
+  case a.kind
+  of vkNil: return true
+  of vkInt: return a.i == b.i
+  of vkFloat: return a.f == b.f
+  of vkBool: return a.b == b.b
+  of vkString: return a.s == b.s
+  of vkFunction: return false  # Functions are not comparable
+  of vkArray: return false     # Arrays need deep comparison (not implemented)
+  of vkMap: return false       # Maps need deep comparison (not implemented)
+  of vkPointer: return a.ptrVal == b.ptrVal
+
+proc toBool*(v: Value): bool =
+  ## Convert a value to boolean. Exported for use in stdlib.
   case v.kind
   of vkNil: false
   of vkBool: v.b
@@ -212,7 +236,8 @@ proc toBool(v: Value): bool =
   of vkArray: v.arr.len > 0
   of vkPointer: v.ptrVal != nil
 
-proc toFloat(v: Value): float =
+proc toFloat*(v: Value): float =
+  ## Convert a value to float. Exported for use in stdlib.
   case v.kind
   of vkInt: float(v.i)
   of vkFloat: v.f
@@ -224,6 +249,10 @@ proc toFloat(v: Value): float =
   of vkArray:
     quit "Runtime Error: Cannot convert array to float"
   else:
+    # Print stack trace to help debug
+    echo "DEBUG toFloat: kind=", v.kind, " value=", v
+    when compileOption("stacktrace"):
+      echo getStackTrace()
     quit "Runtime Error: Expected numeric value, got " & $v.kind & " (value: " & $v & ")"
 
 proc toInt*(v: Value): int =
@@ -238,6 +267,10 @@ proc toInt*(v: Value): int =
   of vkArray:
     quit "Runtime Error: Cannot convert array to int"
   else:
+    # Print stack trace to help debug
+    echo "DEBUG toInt: kind=", v.kind, " value=", v
+    when compileOption("stacktrace"):
+      echo getStackTrace()
     quit "Runtime Error: Expected numeric value, got " & $v.kind & " (value: " & $v & ")"
 
 # ------------------------------------------------------------------------------
@@ -245,15 +278,40 @@ proc toInt*(v: Value): int =
 # ------------------------------------------------------------------------------
 
 type
+  ControlFlow = enum
+    cfNone,        # Normal execution
+    cfReturn,      # Return from function
+    cfBreak,       # Break out of loop
+    cfContinue     # Continue to next iteration
+
   ExecResult = object
-    hasReturn: bool
+    controlFlow: ControlFlow
     value: Value
+    label: string  # Optional label for break/continue
 
 proc noReturn(): ExecResult =
-  ExecResult(hasReturn: false, value: valNil())
+  ExecResult(controlFlow: cfNone, value: valNil(), label: "")
 
 proc withReturn(v: Value): ExecResult =
-  ExecResult(hasReturn: true, value: v)
+  ExecResult(controlFlow: cfReturn, value: v, label: "")
+
+proc withBreak(label: string = ""): ExecResult =
+  ExecResult(controlFlow: cfBreak, value: valNil(), label: label)
+
+proc withContinue(label: string = ""): ExecResult =
+  ExecResult(controlFlow: cfContinue, value: valNil(), label: label)
+
+proc hasReturn(r: ExecResult): bool =
+  r.controlFlow == cfReturn
+
+proc hasBreak(r: ExecResult): bool =
+  r.controlFlow == cfBreak
+
+proc hasContinue(r: ExecResult): bool =
+  r.controlFlow == cfContinue
+
+proc hasControlFlow(r: ExecResult): bool =
+  r.controlFlow != cfNone
 
 # ------------------------------------------------------------------------------
 # Expression Evaluation
@@ -265,18 +323,34 @@ proc execBlock(sts: seq[Stmt]; env: ref Env): ExecResult
 
 # Function call --------------------------------------------------------
 
-proc evalCall(name: string; args: seq[Expr]; namedArgs: seq[tuple[name: string, value: Expr]]; env: ref Env): Value =
-  # Check if this is a type constructor (capitalized name) with only named args
-  # If so, create an object (map) with those fields
-  if name.len > 0 and name[0].isUpperAscii and args.len == 0 and namedArgs.len > 0:
-    echo "Creating type constructor for: ", name, " with ", namedArgs.len, " named args"
-    var objMap = initTable[string, Value]()
-    for namedArg in namedArgs:
-      objMap[namedArg.name] = evalExpr(namedArg.value, env)
-      echo "  Field '", namedArg.name, "' = ", objMap[namedArg.name].kind
-    echo "Created map with ", objMap.len, " fields"
-    return valMap(objMap)
+proc evalCall(name: string; args: seq[Expr]; env: ref Env): Value =
+  # Handle built-in string methods (when first arg is the target object)
+  if args.len > 0 and name in ["toUpper", "toLower", "strip", "trim"]:
+    let target = evalExpr(args[0], env)
+    
+    case name
+    of "toUpper":
+      if target.kind == vkString:
+        return valString(target.s.toUpper())
+      else:
+        quit "Runtime Error: toUpper() requires a string, got " & $target.kind
+    
+    of "toLower":
+      if target.kind == vkString:
+        return valString(target.s.toLower())
+      else:
+        quit "Runtime Error: toLower() requires a string, got " & $target.kind
+    
+    of "strip", "trim":
+      if target.kind == vkString:
+        return valString(target.s.strip())
+      else:
+        quit "Runtime Error: strip() requires a string, got " & $target.kind
+    
+    else:
+      discard  # Fall through to normal lookup
   
+  # Normal function lookup
   let val = getVar(env, name)
   if val.kind != vkFunction:
     quit "Runtime Error: '" & name & "' is not callable"
@@ -287,79 +361,74 @@ proc evalCall(name: string; args: seq[Expr]; namedArgs: seq[tuple[name: string, 
     var argVals: seq[Value] = @[]
     for a in args:
       argVals.add evalExpr(a, env)
-    # Named args for native functions - just append them in order for now
-    for namedArg in namedArgs:
-      argVals.add evalExpr(namedArg.value, env)
     return fn.native(env, argVals)
   else:
     # User-defined function
     let callEnv = newEnv(env)
     var argVals: seq[Value] = @[]
-    for a in args:
-      argVals.add evalExpr(a, env)
+    var argRefs: seq[string] = @[]  # Track which args are variable references for var params
+    
+    for i, a in args:
+      if i < fn.varParams.len and fn.varParams[i] and a.kind == ekIdent:
+        # This is a var parameter and the argument is a simple identifier
+        # Store the variable name for later updating
+        argRefs.add(a.ident)
+        argVals.add(getVar(env, a.ident))
+      else:
+        argRefs.add("")
+        argVals.add(evalExpr(a, env))
 
-    # Bind positional parameters
+    # Bind parameters
     for i, pname in fn.params:
       if i < argVals.len:
+        # Debug: show what we're binding
+        if pname == "color" and argVals[i].kind == vkMap:
+          var keys: seq[string] = @[]
+          for k in argVals[i].map.keys:
+            keys.add(k)
+          echo "DEBUG binding param '", pname, "' with map keys: ", keys
         defineVar(callEnv, pname, argVals[i])
       else:
         defineVar(callEnv, pname, valNil())
     
-    # Bind named parameters - these override positional ones if present
-    for namedArg in namedArgs:
-      let paramValue = evalExpr(namedArg.value, env)
-      defineVar(callEnv, namedArg.name, paramValue)
-
-    # Initialize implicit 'result' variable if function has a return type
+    # Initialize 'result' variable if function has a return type
     if fn.returnType != nil:
-      # Initialize result based on the return type
-      var initialValue = valNil()
-      if fn.returnType.kind == tkSimple:
-        # Initialize with default values for common types
-        case fn.returnType.typeName
-        of "int", "int8", "int16", "int32", "int64",
-           "uint", "uint8", "uint16", "uint32", "uint64":
-          initialValue = valInt(0)
-        of "float", "float32", "float64":
-          initialValue = valFloat(0.0)
-        of "bool":
-          initialValue = valBool(false)
-        of "string":
-          initialValue = valString("")
-        else:
-          # For custom types (like Ball, Color), initialize as empty map
-          initialValue = valMap()
-      elif fn.returnType.kind == tkObject:
-        # Object types initialize as empty maps
-        initialValue = valMap()
-      
-      defineVar(callEnv, "result", initialValue)
+      # Initialize result as an empty object/map (works for object types)
+      # For primitive types, this will be overwritten by explicit assignment
+      defineVar(callEnv, "result", Value(kind: vkMap, map: initTable[string, Value]()))
 
     # Execute body, propagate return
     var returnValue = valNil()
     var hasReturnValue = false
-    for i, st in fn.stmts:
+    
+    for st in fn.stmts:
       let res = execStmt(st, callEnv)
-      if res.hasReturn:
+      if res.hasReturn():
         returnValue = res.value
         hasReturnValue = true
         break
-      
-      # If this is the last statement in a function with a return type,
-      # and it's an expression statement, assign its value to 'result'
-      if i == fn.stmts.len - 1 and fn.returnType != nil and st.kind == skExpr:
-        let exprValue = evalExpr(st.expr, callEnv)
-        setVar(callEnv, "result", exprValue)
     
     # Execute deferred statements in reverse order (LIFO)
     for i in countdown(callEnv.deferStack.len - 1, 0):
       discard execStmt(callEnv.deferStack[i], callEnv)
     
+    # Copy back var parameters to the calling environment
+    for i, pname in fn.params:
+      if i < fn.varParams.len and fn.varParams[i] and i < argRefs.len and argRefs[i] != "":
+        # This was a var parameter, copy the modified value back
+        let modifiedVal = getVar(callEnv, pname)
+        defineVar(env, argRefs[i], modifiedVal)
+    
     if hasReturnValue:
       return returnValue
     
-    # If no explicit return, return the 'result' variable if it exists
+    # If no explicit return but function has return type
     if fn.returnType != nil:
+      # Check if last statement was an expression (implicit return in Nim)
+      if fn.stmts.len > 0 and fn.stmts[^1].kind == skExpr:
+        # Evaluate the last expression and return its value
+        return evalExpr(fn.stmts[^1].expr, callEnv)
+      # Otherwise return the 'result' variable
       return getVar(callEnv, "result")
     
     valNil()
@@ -424,9 +493,16 @@ proc evalExpr(e: Expr; env: ref Env): Value =
       else:
         # Numeric addition
         valFloat(toFloat(l) + toFloat(r))
-    of "-", "*", "/", "%", "mod", "div", "==", "!=", "<", "<=", ">", ">=":
+    of "-", "*", "/", "%", "mod", "==", "!=", "<", "<=", ">", ">=":
       # Arithmetic and comparison operators need numeric conversion
       let bothInts = (l.kind == vkInt and r.kind == vkInt)
+      
+      # Debug: print operands before conversion
+      if l.kind == vkNil or r.kind == vkNil:
+        echo "DEBUG: Binary op '", e.op, "' with nil operand:"
+        echo "  Left: kind=", l.kind, " value=", l
+        echo "  Right: kind=", r.kind, " value=", r
+      
       let lf = toFloat(l)
       let rf = toFloat(r)
 
@@ -437,7 +513,7 @@ proc evalExpr(e: Expr; env: ref Env): Value =
       of "*":
         if bothInts: valInt(l.i * r.i)
         else: valFloat(lf * rf)
-      of "/", "div":
+      of "/":
         if bothInts: valInt(l.i div r.i)
         else: valFloat(lf / rf)
       of "%", "mod":
@@ -458,10 +534,8 @@ proc evalExpr(e: Expr; env: ref Env): Value =
       let rangeMap = initTable[string, Value]()
       var rangeVal = valMap()
       rangeVal.map["start"] = valInt(toInt(l))
-      if e.op == "..":
-        rangeVal.map["end"] = valInt(toInt(r))  # Inclusive
-      else:  # ..<
-        rangeVal.map["end"] = valInt(toInt(r) - 1)  # Exclusive, so subtract 1
+      rangeVal.map["end"] = valInt(toInt(r))
+      rangeVal.map["inclusive"] = valBool(e.op == "..")  # Store whether range is inclusive
       rangeVal.map["is_range"] = valBool(true)
       rangeVal
     
@@ -469,7 +543,7 @@ proc evalExpr(e: Expr; env: ref Env): Value =
       quit "Unknown binary op: " & e.op
 
   of ekCall:
-    evalCall(e.funcName, e.args, e.namedArgs, env)
+    evalCall(e.funcName, e.args, env)
 
   of ekArray:
     var elements: seq[Value] = @[]
@@ -487,6 +561,37 @@ proc evalExpr(e: Expr; env: ref Env): Value =
     let target = evalExpr(e.indexTarget, env)
     let index = evalExpr(e.indexExpr, env)
     
+    # Check if this is a slice operation (index is a range map)
+    if index.kind == vkMap and "is_range" in index.map and toBool(index.map["is_range"]):
+      # This is a slice operation
+      let startIdx = toInt(index.map["start"])
+      let endIdx = toInt(index.map["end"])
+      let isInclusive = if "inclusive" in index.map: toBool(index.map["inclusive"]) else: true
+      
+      case target.kind
+      of vkString:
+        # String slicing
+        let actualEnd = if isInclusive: min(endIdx + 1, target.s.len) else: min(endIdx, target.s.len)
+        let actualStart = max(0, startIdx)
+        if actualStart >= target.s.len or actualStart >= actualEnd:
+          return valString("")
+        return valString(target.s[actualStart..<actualEnd])
+      
+      of vkArray:
+        # Array slicing
+        let actualEnd = if isInclusive: min(endIdx + 1, target.arr.len) else: min(endIdx, target.arr.len)
+        let actualStart = max(0, startIdx)
+        if actualStart >= target.arr.len or actualStart >= actualEnd:
+          return Value(kind: vkArray, arr: @[])
+        var sliced: seq[Value] = @[]
+        for i in actualStart..<actualEnd:
+          sliced.add(target.arr[i])
+        return Value(kind: vkArray, arr: sliced)
+      
+      else:
+        quit "Cannot slice value of type: " & $target.kind
+    
+    # Regular indexing (single element access)
     case target.kind
     of vkArray:
       let idx = toInt(index)
@@ -526,29 +631,100 @@ proc evalExpr(e: Expr; env: ref Env): Value =
     # In a real implementation, this would dereference a pointer
     evalExpr(e.derefExpr, env)
 
-  of ekDot:
-    # Dot notation for field access
-    # For runtime, we treat objects as maps
-    let target = evalExpr(e.dotTarget, env)
-    if target.kind == vkMap:
-      if e.dotField in target.map:
-        return target.map[e.dotField]
-      else:
-        quit "Runtime Error: Field '" & e.dotField & "' not found in object"
-    else:
-      # Provide more context about what went wrong
-      var targetDesc = ""
-      if e.dotTarget.kind == ekIdent:
-        targetDesc = " (accessing '" & e.dotTarget.ident & "." & e.dotField & "')"
-      quit "Runtime Error: Dot notation only works on objects, got " & $target.kind & targetDesc
-
   of ekObjConstr:
-    # Object constructor: TypeName(field1: val1, field2: val2)
-    # For runtime, we represent objects as maps with their fields
+    # Object construction - create a map/table with field values
+    # In the runtime, we represent objects as maps
     var objMap = initTable[string, Value]()
     for field in e.objFields:
-      objMap[field.name] = evalExpr(field.value, env)
-    Value(kind: vkMap, map: objMap)
+      let fieldValue = evalExpr(field.value, env)
+      objMap[field.name] = fieldValue
+    
+    # Debug: if this looks like a Color, print the actual values
+    if "r" in objMap and "g" in objMap and "b" in objMap:
+      echo "DEBUG Color constructed: r=", objMap["r"], " g=", objMap["g"], " b=", objMap["b"], " a=", objMap.getOrDefault("a", valInt(255))
+    
+    # Return as a map value
+    valMap(objMap)
+
+  of ekDot:
+    # Field access or property access
+    let target = evalExpr(e.dotTarget, env)
+    
+    # Handle type conversion methods
+    case e.dotField
+    of "float32", "float", "float64":
+      # Convert to float
+      return valFloat(toFloat(target))
+    of "int", "int32", "int64":
+      # Convert to int
+      return valInt(toInt(target))
+    
+    # Handle built-in properties for strings and arrays
+    case e.dotField
+    of "len":
+      # Get length of string, array, or map
+      case target.kind
+      of vkString:
+        return valInt(target.s.len)
+      of vkArray:
+        return valInt(target.arr.len)
+      of vkMap:
+        return valInt(target.map.len)
+      else:
+        quit "Cannot get length of type: " & $target.kind
+    
+    else:
+      # Regular field access - treat target as a map
+      if target.kind == vkMap:
+        # Debug: check if this is a color field access
+        if e.dotField in ["r", "g", "b", "a"]:
+          echo "DEBUG: Accessing color field '", e.dotField, "'"
+          var keys: seq[string] = @[]
+          for k in target.map.keys:
+            keys.add(k)
+          echo "  Available keys: ", keys
+          if e.dotField notin target.map:
+            echo "  ERROR: Key '", e.dotField, "' not found!"
+        
+        if e.dotField in target.map:
+          return target.map[e.dotField]
+        # Field not found - print debug info
+        echo "DEBUG: Field '", e.dotField, "' not found in map"
+        echo "  Available keys: ", toSeq(target.map.keys)
+        valNil()
+      else:
+        # Not a map/object - return nil
+        valNil()
+
+  of ekTuple:
+    # Tuple literal - represent as array
+    if e.isNamedTuple:
+      # Named tuple: (name: "Bob", age: 30) - represent as map
+      var tupleMap = initTable[string, Value]()
+      for field in e.tupleFields:
+        let fieldValue = evalExpr(field.value, env)
+        tupleMap[field.name] = fieldValue
+      valMap(tupleMap)
+    else:
+      # Unnamed tuple: (1, 2, 3) - represent as array
+      var elements: seq[Value] = @[]
+      for elem in e.tupleElements:
+        elements.add(evalExpr(elem, env))
+      valArray(elements)
+  
+  of ekLambda:
+    # Lambda expression - create a function value
+    var params: seq[string] = @[]
+    var varParams: seq[bool] = @[]
+    for param in e.lambdaParams:
+      params.add(param.name)
+      varParams.add(param.isVar)
+    valFunction(FunctionVal(
+      isNative: false,
+      params: params,
+      varParams: varParams,
+      stmts: e.lambdaBody
+    ))
 
 # ------------------------------------------------------------------------------
 # Statement Execution
@@ -558,7 +734,7 @@ proc execBlock(sts: seq[Stmt]; env: ref Env): ExecResult =
   var res = noReturn()
   for st in sts:
     res = execStmt(st, env)
-    if res.hasReturn:
+    if res.hasControlFlow():
       return res
   res
 
@@ -569,11 +745,37 @@ proc execStmt*(s: Stmt; env: ref Env): ExecResult =
     noReturn()
 
   of skVar:
-    defineVar(env, s.varName, evalExpr(s.varValue, env))
+    if s.isVarUnpack:
+      # Tuple unpacking: var (x, y, z) = getTuple()
+      let value = evalExpr(s.varValue, env)
+      if value.kind == vkArray:
+        # Unpack array elements to variables
+        for i, name in s.varNames:
+          if i < value.arr.len:
+            defineVar(env, name, value.arr[i])
+          else:
+            defineVar(env, name, valNil())
+      else:
+        quit "Cannot unpack non-array value in var unpacking"
+    else:
+      defineVar(env, s.varName, evalExpr(s.varValue, env))
     noReturn()
 
   of skLet:
-    defineVar(env, s.letName, evalExpr(s.letValue, env))
+    if s.isLetUnpack:
+      # Tuple unpacking: let (x, y, z) = getTuple()
+      let value = evalExpr(s.letValue, env)
+      if value.kind == vkArray:
+        # Unpack array elements to variables
+        for i, name in s.letNames:
+          if i < value.arr.len:
+            defineVar(env, name, value.arr[i])
+          else:
+            defineVar(env, name, valNil())
+      else:
+        quit "Cannot unpack non-array value in let unpacking"
+    else:
+      defineVar(env, s.letName, evalExpr(s.letValue, env))
     noReturn()
 
   of skConst:
@@ -587,7 +789,6 @@ proc execStmt*(s: Stmt; env: ref Env): ExecResult =
     case s.assignTarget.kind
     of ekIdent:
       # Simple variable assignment
-      echo "ASSIGN: Setting variable '", s.assignTarget.ident, "' to ", value.kind
       setVar(env, s.assignTarget.ident, value)
     of ekIndex:
       # Array/map index assignment
@@ -606,34 +807,24 @@ proc execStmt*(s: Stmt; env: ref Env): ExecResult =
       else:
         quit "Cannot index into non-array/map value"
     of ekDot:
-      # Dot notation assignment (object field)
-      # Handle nested dot notation: ball.position.x = value
-      # We need to check if dotTarget is also a dot expression (nested access)
-      if s.assignTarget.dotTarget.kind == ekDot:
-        # Nested dot: e.g., ball.position.x
-        # Evaluate the parent (ball.position) and modify it in place
-        let parent = evalExpr(s.assignTarget.dotTarget.dotTarget, env)
-        if parent.kind != vkMap:
-          quit "Runtime Error: Cannot access field on non-object"
+      # Field assignment - update the field in the object (map)
+      let target = evalExpr(s.assignTarget.dotTarget, env)
+      if target.kind == vkMap:
+        # Debug field assignments to color
+        if s.assignTarget.dotField == "color":
+          echo "DEBUG: Assigning to field 'color'"
+          echo "  Target has ", target.map.len, " keys"
+          echo "  Value kind: ", value.kind
+          if value.kind == vkMap:
+            var keys: seq[string] = @[]
+            for k in value.map.keys:
+              keys.add(k)
+            echo "  Value map keys: ", keys
         
-        let middleFieldName = s.assignTarget.dotTarget.dotField
-        if middleFieldName notin parent.map:
-          # Create the intermediate object if it doesn't exist
-          parent.map[middleFieldName] = valMap()
-        
-        let middleObj = parent.map[middleFieldName]
-        if middleObj.kind != vkMap:
-          quit "Runtime Error: Intermediate field is not an object"
-        
-        # Now set the final field
-        middleObj.map[s.assignTarget.dotField] = value
+        # Update or add the field
+        target.map[s.assignTarget.dotField] = value
       else:
-        # Simple dot: e.g., ball.position
-        let target = evalExpr(s.assignTarget.dotTarget, env)
-        if target.kind == vkMap:
-          target.map[s.assignTarget.dotField] = value
-        else:
-          quit "Runtime Error: Dot notation assignment only works on objects"
+        quit "Cannot assign to field of non-object value"
     else:
       quit "Invalid assignment target"
     noReturn()
@@ -655,6 +846,34 @@ proc execStmt*(s: Stmt; env: ref Env): ExecResult =
 
     noReturn()
 
+  of skCase:
+    # Evaluate the case expression
+    let caseVal = evalExpr(s.caseExpr, env)
+    
+    # Try to match against 'of' branches
+    for branch in s.ofBranches:
+      for valueExpr in branch.values:
+        let branchVal = evalExpr(valueExpr, env)
+        # Compare values
+        if valuesEqual(caseVal, branchVal):
+          let childEnv = newEnv(env)
+          return execBlock(branch.stmts, childEnv)
+    
+    # If no 'of' branch matched, try 'elif' branches
+    for elifBranch in s.caseElif:
+      if toBool(evalExpr(elifBranch.cond, env)):
+        let childEnv = newEnv(env)
+        return execBlock(elifBranch.stmts, childEnv)
+    
+    # If no branch matched, execute else branch if present
+    if s.caseElse.len > 0:
+      let childEnv = newEnv(env)
+      return execBlock(s.caseElse, childEnv)
+    
+    # If we get here and no else branch exists, that's a runtime error
+    # (In Nim, this would be a compile-time error for non-exhaustive cases)
+    noReturn()
+
   of skFor:
     # Evaluate the iterable expression
     let iterableVal = evalExpr(s.forIterable, env)
@@ -664,23 +883,124 @@ proc execStmt*(s: Stmt; env: ref Env): ExecResult =
       # Range value created by .. or ..< operators
       let startVal = toInt(iterableVal.map["start"])
       let endVal = toInt(iterableVal.map["end"])
-      for i in startVal .. endVal:
-        let loopEnv = newEnv(env)
-        defineVar(loopEnv, s.forVar, valInt(i))
-        let res = execBlock(s.forBody, loopEnv)
-        if res.hasReturn:
-          return res
+      let isInclusive = toBool(iterableVal.map["inclusive"])
+      
+      # Use inclusive or exclusive range based on the operator
+      if isInclusive:
+        for i in startVal .. endVal:
+          let loopEnv = newEnv(env)
+          # Support multi-variable iteration (e.g., for i, item in pairs(arr))
+          if s.forVars.len > 1:
+            # For simple ranges, only the index is available
+            # First var gets the index, others get nil
+            for idx, varName in s.forVars:
+              if idx == 0:
+                defineVar(loopEnv, varName, valInt(i))
+              else:
+                defineVar(loopEnv, varName, valNil())
+          else:
+            defineVar(loopEnv, s.forVar, valInt(i))
+          
+          let res = execBlock(s.forBody, loopEnv)
+          if res.hasReturn():
+            return res
+          elif res.hasBreak():
+            # Check if this break is for this loop (label matches or no label)
+            if res.label == "" or res.label == s.forLabel:
+              break
+            else:
+              # Break is for an outer loop, propagate it
+              return res
+          elif res.hasContinue():
+            # Check if this continue is for this loop (label matches or no label)
+            if res.label == "" or res.label == s.forLabel:
+              continue
+            else:
+              # Continue is for an outer loop, propagate it
+              return res
+      else:
+        for i in startVal ..< endVal:
+          let loopEnv = newEnv(env)
+          # Support multi-variable iteration
+          if s.forVars.len > 1:
+            for idx, varName in s.forVars:
+              if idx == 0:
+                defineVar(loopEnv, varName, valInt(i))
+              else:
+                defineVar(loopEnv, varName, valNil())
+          else:
+            defineVar(loopEnv, s.forVar, valInt(i))
+          
+          let res = execBlock(s.forBody, loopEnv)
+          if res.hasReturn():
+            return res
+          elif res.hasBreak():
+            if res.label == "" or res.label == s.forLabel:
+              break
+            else:
+              return res
+          elif res.hasContinue():
+            if res.label == "" or res.label == s.forLabel:
+              continue
+            else:
+              return res
     elif iterableVal.kind == vkInt:
       # Simple case: iterate from 0 to value-1 (backward compatibility)
       for i in 0 ..< iterableVal.i:
         let loopEnv = newEnv(env)
-        defineVar(loopEnv, s.forVar, valInt(i))
+        if s.forVars.len > 1:
+          for idx, varName in s.forVars:
+            if idx == 0:
+              defineVar(loopEnv, varName, valInt(i))
+            else:
+              defineVar(loopEnv, varName, valNil())
+        else:
+          defineVar(loopEnv, s.forVar, valInt(i))
         let res = execBlock(s.forBody, loopEnv)
-        if res.hasReturn:
+        if res.hasReturn():
           return res
+        elif res.hasBreak():
+          if res.label == "" or res.label == s.forLabel:
+            break
+          else:
+            return res
+        elif res.hasContinue():
+          if res.label == "" or res.label == s.forLabel:
+            continue
+          else:
+            return res
+    elif iterableVal.kind == vkArray:
+      # Iterate over array elements
+      for i, item in iterableVal.arr:
+        let loopEnv = newEnv(env)
+        if s.forVars.len > 1:
+          # Multi-variable: for idx, elem in array
+          for idx, varName in s.forVars:
+            if idx == 0:
+              defineVar(loopEnv, varName, valInt(i))
+            elif idx == 1:
+              defineVar(loopEnv, varName, item)
+            else:
+              defineVar(loopEnv, varName, valNil())
+        else:
+          # Single variable: for elem in array (just the element)
+          defineVar(loopEnv, s.forVar, item)
+        let res = execBlock(s.forBody, loopEnv)
+        if res.hasReturn():
+          return res
+        elif res.hasBreak():
+          if res.label == "" or res.label == s.forLabel:
+            break
+          else:
+            return res
+        elif res.hasContinue():
+          if res.label == "" or res.label == s.forLabel:
+            continue
+          else:
+            return res
     else:
       # For other cases, we could extend this to handle custom iterables
-      quit "Runtime Error: Cannot iterate over value in for loop (not a range or integer)"
+      quit "Runtime Error: Cannot iterate over value in for loop (not a range, integer, or array)"
 
     noReturn()
 
@@ -696,25 +1016,60 @@ proc execStmt*(s: Stmt; env: ref Env): ExecResult =
       let res = execBlock(s.whileBody, env)
       
       # If body returns, propagate the return
-      if res.hasReturn:
+      if res.hasReturn():
         return res
+      elif res.hasBreak():
+        # Check if this break is for this loop (label matches or no label)
+        if res.label == "" or res.label == s.whileLabel:
+          break
+        else:
+          # Break is for an outer loop, propagate it
+          return res
+      elif res.hasContinue():
+        # Check if this continue is for this loop (label matches or no label)
+        if res.label == "" or res.label == s.whileLabel:
+          continue
+        else:
+          # Continue is for an outer loop, propagate it
+          return res
     
     noReturn()
 
   of skProc:
     var pnames: seq[string] = @[]
-    for (n, _) in s.params:
-      pnames.add(n)
-    defineVar(env, s.procName, valUserFunc(pnames, s.body, s.procReturnType))
+    var varParams: seq[bool] = @[]
+    for param in s.params:
+      pnames.add(param.name)
+      varParams.add(param.isVar)
+    
+    let funcVal = FunctionVal(
+      isNative: false,
+      params: pnames,
+      varParams: varParams,
+      stmts: s.body,
+      returnType: s.procReturnType
+    )
+    defineVar(env, s.procName, valFunction(funcVal))
     noReturn()
 
   of skReturn:
     withReturn(evalExpr(s.returnVal, env))
 
   of skBlock:
-    # Blocks in Nim don't create new variable scopes
-    # They're mainly for control flow (break statements)
-    return execBlock(s.stmts, env)
+    # Explicit blocks create their own scope
+    let blockEnv = newEnv(env)
+    let res = execBlock(s.stmts, blockEnv)
+    
+    # Check if there's a break with a label targeting this block
+    if res.hasBreak() and res.label.len > 0:
+      # If the label matches this block's label, consume the break
+      if res.label == s.blockLabel:
+        return noReturn()
+      else:
+        # Propagate the break to outer blocks
+        return res
+    
+    return res
 
   of skDefer:
     # Defer statement - push to defer stack for execution at scope exit
@@ -725,6 +1080,12 @@ proc execStmt*(s: Stmt; env: ref Env): ExecResult =
     # Type definition - for runtime, we just store it as metadata
     # In a real implementation, this would register the type in a type system
     noReturn()
+
+  of skBreak:
+    withBreak(s.breakLabel)
+
+  of skContinue:
+    withContinue(s.continueLabel)
 
 # ------------------------------------------------------------------------------
 # Program Execution
@@ -741,7 +1102,6 @@ proc registerNative*(name: string; fn: NativeFunc) =
 
 proc initRuntime*() =
   runtimeEnv = newEnv(nil)
-  # Note: Plugin system is initialized on-demand in plugin.nim
   # Note: Standard library functions are registered separately via initStdlib()
   
   # Register built-in print/echo functions
@@ -759,6 +1119,11 @@ proc initRuntime*() =
     stdout.write("\n")
     valNil()
   )
+  
+  # Register mathematical constants
+  defineVar(runtimeEnv, "PI", valFloat(PI))
+  defineVar(runtimeEnv, "E", valFloat(E))
+  defineVar(runtimeEnv, "TAU", valFloat(TAU))
 
 proc execProgram*(prog: Program; env: ref Env) =
   discard execBlock(prog.stmts, env)

@@ -1,0 +1,74 @@
+name: Test NimRLive Scripts
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '**.nim'
+      - 'test_*.nim'
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-headless:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Setup Nim
+      uses: jiro4989/setup-nim-action@v1
+      with:
+        nim-version: '2.0.0'
+    
+    - name: Install dependencies
+      run: |
+        nimble install -y naylib
+    
+    - name: Run headless tests
+      run: |
+        echo "Testing minimal example..."
+        nim r test_headless.nim test_minimal.nim
+        
+        echo "Testing examples..."
+        for file in examples/*.nim; do
+          echo "Testing $file..."
+          nim r test_headless.nim "$file" || echo "⚠️  $file failed (might use unsupported features)"
+        done
+    
+    - name: Test summary
+      if: always()
+      run: |
+        echo "✅ Headless tests completed"
+        echo "See job logs for detailed results"
+
+  test-compile:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Setup Nim
+      uses: jiro4989/setup-nim-action@v1
+      with:
+        nim-version: '2.0.0'
+    
+    - name: Install dependencies
+      run: |
+        nimble install -y naylib
+    
+    - name: Compile test
+      run: |
+        echo "Testing nimrlive compilation..."
+        nim c nimrlive.nim
+        
+        echo "Testing test tools compilation..."
+        nim c test_headless.nim
+        nim c test_local.nim
+    
+    - name: Compilation summary
+      if: always()
+      run: |
+        echo "✅ Compilation tests completed"

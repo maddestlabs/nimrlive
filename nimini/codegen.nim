@@ -3,12 +3,13 @@
 
 import std/[strutils, tables, sets]
 import ast
-import plugin
+import codegen_ext
 import backend
 import backends/nim_backend
 
 export backend
 export nim_backend
+export codegen_ext
 
 # ------------------------------------------------------------------------------
 # Type Helpers
@@ -40,12 +41,10 @@ proc typeToString*(t: TypeNode): string =
       result.add(": " & typeToString(t.procReturn))
   of tkObject:
     result = "object"
-    if t.objectFields.len > 0:
-      result.add("\n")
-      for field in t.objectFields:
-        result.add("  " & field.name & ": " & typeToString(field.fieldType) & "\n")
-      # Remove trailing newline
-      result = result[0..^2]
+    # Field details handled in statement generation
+  of tkEnum:
+    result = "enum"
+    # Enum values handled in statement generation
 
 # ------------------------------------------------------------------------------
 # Codegen Context
@@ -123,16 +122,24 @@ proc withIndent(ctx: CodegenContext; code: string): string =
 # Expression Code Generation
 # ------------------------------------------------------------------------------
 
+# Forward declarations for mutually recursive procs
 proc genExpr*(e: Expr; ctx: CodegenContext): string
+proc genStmt*(s: Stmt; ctx: CodegenContext): string
 
 proc genExpr*(e: Expr; ctx: CodegenContext): string =
   ## Generate code for an expression using the configured backend
   case e.kind
   of ekInt:
     result = ctx.backend.generateInt(e.intVal)
+    # Add type suffix if present (only for Nim backend)
+    if e.intTypeSuffix.len > 0 and ctx.backend.name == "Nim":
+      result = result & "'" & e.intTypeSuffix
 
   of ekFloat:
     result = ctx.backend.generateFloat(e.floatVal)
+    # Add type suffix if present (only for Nim backend)
+    if e.floatTypeSuffix.len > 0 and ctx.backend.name == "Nim":
+      result = result & "'" & e.floatTypeSuffix
 
   of ekString:
     result = ctx.backend.generateString(e.strVal)
@@ -164,16 +171,127 @@ proc genExpr*(e: Expr; ctx: CodegenContext): string =
     else:
       funcCode = e.funcName
 
-    # Generate positional arguments
+    # Generate arguments
     var argStrs: seq[string] = @[]
     for arg in e.args:
       argStrs.add(genExpr(arg, ctx))
-    
-    # Generate named arguments
-    for namedArg in e.namedArgs:
-      argStrs.add(namedArg.name & " = " & genExpr(namedArg.value, ctx))
 
-    result = ctx.backend.generateCall(funcCode, argStrs)
+    # Check if this is a method call (first arg is the object)
+    # Detect common string/collection methods
+    if argStrs.len > 0 and funcCode in ["toUpper", "toLower", "strip", "trim", "split", "join", "replace", "contains", "startsWith", "endsWith"]:
+      let target = argStrs[0]
+      let methodArgs = argStrs[1..^1]
+      
+      case funcCode
+      of "toUpper":
+        case ctx.backend.name
+        of "Nim":
+          result = target & ".toUpper()"
+        of "Python":
+          result = target & ".upper()"
+        of "JavaScript":
+          result = target & ".toUpperCase()"
+        else:
+          result = target & ".toUpper()"
+      
+      of "toLower":
+        case ctx.backend.name
+        of "Nim":
+          result = target & ".toLower()"
+        of "Python":
+          result = target & ".lower()"
+        of "JavaScript":
+          result = target & ".toLowerCase()"
+        else:
+          result = target & ".toLower()"
+      
+      of "strip", "trim":
+        case ctx.backend.name
+        of "Nim":
+          result = target & ".strip()"
+        of "Python":
+          result = target & ".strip()"
+        of "JavaScript":
+          result = target & ".trim()"
+        else:
+          result = target & ".strip()"
+      
+      of "split":
+        if methodArgs.len > 0:
+          case ctx.backend.name
+          of "Nim", "Python", "JavaScript":
+            result = target & ".split(" & methodArgs.join(", ") & ")"
+          else:
+            result = target & ".split(" & methodArgs.join(", ") & ")"
+        else:
+          result = target & ".split()"
+      
+      of "join":
+        if methodArgs.len > 0:
+          case ctx.backend.name
+          of "Nim", "Python", "JavaScript":
+            result = target & ".join(" & methodArgs.join(", ") & ")"
+          else:
+            result = target & ".join(" & methodArgs.join(", ") & ")"
+        else:
+          result = target & ".join()"
+      
+      of "replace":
+        if methodArgs.len >= 2:
+          case ctx.backend.name
+          of "Nim", "Python", "JavaScript":
+            result = target & ".replace(" & methodArgs.join(", ") & ")"
+          else:
+            result = target & ".replace(" & methodArgs.join(", ") & ")"
+        else:
+          result = ctx.backend.generateCall(funcCode, argStrs)
+      
+      of "contains":
+        if methodArgs.len > 0:
+          case ctx.backend.name
+          of "Nim":
+            result = target & ".contains(" & methodArgs[0] & ")"
+          of "Python":
+            result = methodArgs[0] & " in " & target
+          of "JavaScript":
+            result = target & ".includes(" & methodArgs[0] & ")"
+          else:
+            result = target & ".contains(" & methodArgs[0] & ")"
+        else:
+          result = ctx.backend.generateCall(funcCode, argStrs)
+      
+      of "startsWith":
+        if methodArgs.len > 0:
+          case ctx.backend.name
+          of "Nim":
+            result = target & ".startsWith(" & methodArgs[0] & ")"
+          of "Python":
+            result = target & ".startswith(" & methodArgs[0] & ")"
+          of "JavaScript":
+            result = target & ".startsWith(" & methodArgs[0] & ")"
+          else:
+            result = target & ".startsWith(" & methodArgs[0] & ")"
+        else:
+          result = ctx.backend.generateCall(funcCode, argStrs)
+      
+      of "endsWith":
+        if methodArgs.len > 0:
+          case ctx.backend.name
+          of "Nim":
+            result = target & ".endsWith(" & methodArgs[0] & ")"
+          of "Python":
+            result = target & ".endswith(" & methodArgs[0] & ")"
+          of "JavaScript":
+            result = target & ".endsWith(" & methodArgs[0] & ")"
+          else:
+            result = target & ".endsWith(" & methodArgs[0] & ")"
+        else:
+          result = ctx.backend.generateCall(funcCode, argStrs)
+      
+      else:
+        result = ctx.backend.generateCall(funcCode, argStrs)
+    else:
+      result = ctx.backend.generateCall(funcCode, argStrs)
 
   of ekArray:
     # Generate array literal
@@ -194,10 +312,39 @@ proc genExpr*(e: Expr; ctx: CodegenContext): string =
     result &= "}.toTable"
 
   of ekIndex:
-    # Generate array indexing
+    # Generate array indexing or slicing
     let target = genExpr(e.indexTarget, ctx)
-    let index = genExpr(e.indexExpr, ctx)
-    result = ctx.backend.generateIndex(target, index)
+    
+    # Check if this is a slice operation (index is a range operation)
+    if e.indexExpr.kind == ekBinOp and (e.indexExpr.op == ".." or e.indexExpr.op == "..<"):
+      let startIdx = genExpr(e.indexExpr.left, ctx)
+      let endIdx = genExpr(e.indexExpr.right, ctx)
+      let isInclusive = e.indexExpr.op == ".."
+      
+      # Generate backend-specific slice syntax
+      case ctx.backend.name
+      of "Nim":
+        if isInclusive:
+          result = target & "[" & startIdx & ".." & endIdx & "]"
+        else:
+          result = target & "[" & startIdx & "..<" & endIdx & "]"
+      of "Python":
+        if isInclusive:
+          result = target & "[" & startIdx & ":" & endIdx & "+1]"
+        else:
+          result = target & "[" & startIdx & ":" & endIdx & "]"
+      of "JavaScript":
+        if isInclusive:
+          result = target & ".slice(" & startIdx & ", " & endIdx & "+1)"
+        else:
+          result = target & ".slice(" & startIdx & ", " & endIdx & ")"
+      else:
+        # Default fallback
+        result = target & "[" & startIdx & ".." & endIdx & "]"
+    else:
+      # Regular indexing
+      let index = genExpr(e.indexExpr, ctx)
+      result = ctx.backend.generateIndex(target, index)
 
   of ekCast:
     # Generate cast[Type](expr)
@@ -215,26 +362,222 @@ proc genExpr*(e: Expr; ctx: CodegenContext): string =
     let expr = genExpr(e.derefExpr, ctx)
     result = expr & "[]"
 
-  of ekDot:
-    # Generate dot notation: target.field
-    let target = genExpr(e.dotTarget, ctx)
-    result = target & "." & e.dotField
-
   of ekObjConstr:
-    # Generate object constructor: TypeName(field1: val1, field2: val2)
-    result = e.objTypeName & "("
+    # Generate object construction Type(field: value, ...)
+    result = e.objType & "("
     var fieldStrs: seq[string] = @[]
     for field in e.objFields:
-      fieldStrs.add(field.name & ": " & genExpr(field.value, ctx))
+      let fieldValue = genExpr(field.value, ctx)
+      fieldStrs.add(field.name & ": " & fieldValue)
     result &= fieldStrs.join(", ")
     result &= ")"
+
+  of ekDot:
+    # Generate field access obj.field or method calls
+    let target = genExpr(e.dotTarget, ctx)
+    
+    # Check if this is a common string/collection method
+    case e.dotField
+    of "len":
+      # String/array length - map to backend-specific syntax
+      case ctx.backend.name
+      of "Nim":
+        result = target & ".len"
+      of "Python":
+        result = "len(" & target & ")"
+      of "JavaScript":
+        result = target & ".length"
+      else:
+        result = target & ".len"
+    
+    of "toUpper":
+      # Convert to uppercase
+      case ctx.backend.name
+      of "Nim":
+        result = target & ".toUpper()"
+      of "Python":
+        result = target & ".upper()"
+      of "JavaScript":
+        result = target & ".toUpperCase()"
+      else:
+        result = target & ".toUpper()"
+    
+    of "toLower":
+      # Convert to lowercase
+      case ctx.backend.name
+      of "Nim":
+        result = target & ".toLower()"
+      of "Python":
+        result = target & ".lower()"
+      of "JavaScript":
+        result = target & ".toLowerCase()"
+      else:
+        result = target & ".toLower()"
+    
+    of "strip", "trim":
+      # Remove leading/trailing whitespace
+      case ctx.backend.name
+      of "Nim":
+        result = target & ".strip()"
+      of "Python":
+        result = target & ".strip()"
+      of "JavaScript":
+        result = target & ".trim()"
+      else:
+        result = target & ".strip()"
+    
+    of "split":
+      # String split - needs special handling for arguments
+      # For now, just generate the method name
+      case ctx.backend.name
+      of "Nim", "Python", "JavaScript":
+        result = target & ".split"
+      else:
+        result = target & ".split"
+    
+    of "join":
+      # String join
+      case ctx.backend.name
+      of "Nim", "Python", "JavaScript":
+        result = target & ".join"
+      else:
+        result = target & ".join"
+    
+    of "replace":
+      # String replace
+      case ctx.backend.name
+      of "Nim", "Python", "JavaScript":
+        result = target & ".replace"
+      else:
+        result = target & ".replace"
+    
+    of "contains":
+      # String/array contains check
+      case ctx.backend.name
+      of "Nim":
+        result = target & ".contains"
+      of "Python":
+        # In Python, use 'in' operator, but for method call syntax we need a wrapper
+        result = target & ".__contains__"
+      of "JavaScript":
+        result = target & ".includes"
+      else:
+        result = target & ".contains"
+    
+    of "startsWith":
+      # String starts with
+      case ctx.backend.name
+      of "Nim":
+        result = target & ".startsWith"
+      of "Python":
+        result = target & ".startswith"
+      of "JavaScript":
+        result = target & ".startsWith"
+      else:
+        result = target & ".startsWith"
+    
+    of "endsWith":
+      # String ends with
+      case ctx.backend.name
+      of "Nim":
+        result = target & ".endsWith"
+      of "Python":
+        result = target & ".endswith"
+      of "JavaScript":
+        result = target & ".endsWith"
+      else:
+        result = target & ".endsWith"
+    
+    else:
+      # Regular field access
+      result = target & "." & e.dotField
+
+  of ekTuple:
+    # Generate tuple literal
+    if e.isNamedTuple:
+      # Named tuple: (name: "Bob", age: 30)
+      result = "("
+      var fieldStrs: seq[string] = @[]
+      for field in e.tupleFields:
+        let fieldValue = genExpr(field.value, ctx)
+        fieldStrs.add(field.name & ": " & fieldValue)
+      result &= fieldStrs.join(", ")
+      result &= ")"
+    else:
+      # Unnamed tuple: (1, "hello", true)
+      result = "("
+      var elemStrs: seq[string] = @[]
+      for elem in e.tupleElements:
+        elemStrs.add(genExpr(elem, ctx))
+      result &= elemStrs.join(", ")
+      result &= ")"
+  
+  of ekLambda:
+    # Generate lambda/anonymous proc
+    case ctx.backend.name
+    of "Nim":
+      # Nim: proc(params): body
+      result = "proc("
+      var paramStrs: seq[string] = @[]
+      for param in e.lambdaParams:
+        if param.isVar:
+          paramStrs.add(param.name & ": var " & param.paramType)
+        elif param.paramType.len > 0:
+          paramStrs.add(param.name & ": " & param.paramType)
+        else:
+          paramStrs.add(param.name)
+      result &= paramStrs.join(", ")
+      result &= ") =\n"
+      
+      # Generate lambda body
+      ctx.indent += 1
+      for stmt in e.lambdaBody:
+        result &= genStmt(stmt, ctx) & "\n"
+      ctx.indent -= 1
+    
+    of "Python":
+      # Python: lambda params: body (but lambdas are limited, may need to use def)
+      # For multi-line bodies, we'll generate an inline function definition
+      if e.lambdaBody.len == 1:
+        # Try to use lambda for simple cases
+        result = "lambda "
+        var paramStrs: seq[string] = @[]
+        for param in e.lambdaParams:
+          paramStrs.add(param.name)
+        result &= paramStrs.join(", ")
+        result &= ": "
+        result &= genStmt(e.lambdaBody[0], ctx).strip()
+      else:
+        # Multi-line: need to define a function
+        # This is tricky in an expression context - for now, use a simple lambda that calls nothing
+        result = "lambda: None  # TODO: multi-statement lambda"
+    
+    of "JavaScript":
+      # JavaScript: (params) => { body }
+      result = "("
+      var paramStrs: seq[string] = @[]
+      for param in e.lambdaParams:
+        paramStrs.add(param.name)
+      result &= paramStrs.join(", ")
+      result &= ") => {\n"
+      
+      # Generate lambda body
+      ctx.indent += 1
+      for stmt in e.lambdaBody:
+        result &= genStmt(stmt, ctx) & "\n"
+      ctx.indent -= 1
+      result &= ctx.getIndent() & "}"
+    
+    else:
+      result = "/* lambda not implemented for " & ctx.backend.name & " */"
 
 # ------------------------------------------------------------------------------
 # Statement Code Generation
 # ------------------------------------------------------------------------------
 
-proc genStmt*(s: Stmt; ctx: CodegenContext): string
 proc genBlock*(stmts: seq[Stmt]; ctx: CodegenContext): string
+
+# genStmt is already forward declared above with genExpr
 
 proc genStmt*(s: Stmt; ctx: CodegenContext): string =
   ## Generate code for a statement using the configured backend
@@ -243,20 +586,32 @@ proc genStmt*(s: Stmt; ctx: CodegenContext): string =
     result = ctx.withIndent(genExpr(s.expr, ctx))
 
   of skVar:
-    let value = genExpr(s.varValue, ctx)
-    let typeStr = if s.varType.isNil: "" else: typeToString(s.varType)
-    result = ctx.backend.generateVarDecl(s.varName, value, ctx.getIndent())
-    if typeStr.len > 0:
-      # Add type annotation if present
-      result = ctx.getIndent() & "var " & s.varName & ": " & typeStr & " = " & value
+    if s.isVarUnpack:
+      # Tuple unpacking: var (x, y) = getTuple()
+      let value = genExpr(s.varValue, ctx)
+      let names = "(" & s.varNames.join(", ") & ")"
+      result = ctx.getIndent() & "var " & names & " = " & value
+    else:
+      let value = genExpr(s.varValue, ctx)
+      let typeStr = if s.varType.isNil: "" else: typeToString(s.varType)
+      result = ctx.backend.generateVarDecl(s.varName, value, ctx.getIndent())
+      if typeStr.len > 0:
+        # Add type annotation if present
+        result = ctx.getIndent() & "var " & s.varName & ": " & typeStr & " = " & value
 
   of skLet:
-    let value = genExpr(s.letValue, ctx)
-    let typeStr = if s.letType.isNil: "" else: typeToString(s.letType)
-    result = ctx.backend.generateLetDecl(s.letName, value, ctx.getIndent())
-    if typeStr.len > 0:
-      # Add type annotation if present
-      result = ctx.getIndent() & "let " & s.letName & ": " & typeStr & " = " & value
+    if s.isLetUnpack:
+      # Tuple unpacking: let (x, y) = getTuple()
+      let value = genExpr(s.letValue, ctx)
+      let names = "(" & s.letNames.join(", ") & ")"
+      result = ctx.getIndent() & "let " & names & " = " & value
+    else:
+      let value = genExpr(s.letValue, ctx)
+      let typeStr = if s.letType.isNil: "" else: typeToString(s.letType)
+      result = ctx.backend.generateLetDecl(s.letName, value, ctx.getIndent())
+      if typeStr.len > 0:
+        # Add type annotation if present
+        result = ctx.getIndent() & "let " & s.letName & ": " & typeStr & " = " & value
 
   of skConst:
     let value = genExpr(s.constValue, ctx)
@@ -306,12 +661,59 @@ proc genStmt*(s: Stmt; ctx: CodegenContext): string =
 
     result = lines.join("\n")
 
+  of skCase:
+    var lines: seq[string] = @[]
+    let caseExpr = genExpr(s.caseExpr, ctx)
+    
+    # Generate case statement header
+    lines.add(ctx.withIndent("case " & caseExpr))
+    
+    # Generate 'of' branches
+    for branch in s.ofBranches:
+      # Combine multiple values with commas
+      var valuesStr = ""
+      for i, valueExpr in branch.values:
+        if i > 0:
+          valuesStr.add(", ")
+        valuesStr.add(genExpr(valueExpr, ctx))
+      
+      lines.add(ctx.withIndent("of " & valuesStr & ":"))
+      ctx.indent += 1
+      for stmt in branch.stmts:
+        lines.add(genStmt(stmt, ctx))
+      ctx.indent -= 1
+    
+    # Generate 'elif' branches (treated as part of case in Nim)
+    for elifBranch in s.caseElif:
+      let elifCond = genExpr(elifBranch.cond, ctx)
+      lines.add(ctx.withIndent("elif " & elifCond & ":"))
+      ctx.indent += 1
+      for stmt in elifBranch.stmts:
+        lines.add(genStmt(stmt, ctx))
+      ctx.indent -= 1
+    
+    # Generate 'else' branch
+    if s.caseElse.len > 0:
+      lines.add(ctx.withIndent("else:"))
+      ctx.indent += 1
+      for stmt in s.caseElse:
+        lines.add(genStmt(stmt, ctx))
+      ctx.indent -= 1
+    
+    result = lines.join("\n")
+
   of skFor:
     var lines: seq[string] = @[]
     let iterableExpr = genExpr(s.forIterable, ctx)
 
-    # Generate for loop
-    lines.add(ctx.backend.generateForLoop(s.forVar, iterableExpr, ctx.getIndent()))
+    # Handle labeled loops
+    if s.forLabel.len > 0:
+      lines.add(ctx.getIndent() & "block " & s.forLabel & ":")
+      ctx.indent += 1
+    
+    # Generate for loop with multiple variables if needed
+    let forVarList = if s.forVars.len > 1: s.forVars.join(", ") else: s.forVar
+    lines.add(ctx.backend.generateForLoop(forVarList, iterableExpr, ctx.getIndent()))
     ctx.indent += 1
     for stmt in s.forBody:
       lines.add(genStmt(stmt, ctx))
@@ -320,6 +722,10 @@ proc genStmt*(s: Stmt; ctx: CodegenContext): string =
     # Close block for brace-based languages
     if not ctx.backend.usesIndentation:
       lines.add(ctx.backend.generateBlockEnd(ctx.getIndent()))
+    
+    # Close labeled block
+    if s.forLabel.len > 0:
+      ctx.indent -= 1
 
     result = lines.join("\n")
 
@@ -327,6 +733,11 @@ proc genStmt*(s: Stmt; ctx: CodegenContext): string =
     var lines: seq[string] = @[]
     let condExpr = genExpr(s.whileCond, ctx)
 
+    # Handle labeled loops
+    if s.whileLabel.len > 0:
+      lines.add(ctx.getIndent() & "block " & s.whileLabel & ":")
+      ctx.indent += 1
+    
     # Generate while loop
     lines.add(ctx.backend.generateWhileLoop(condExpr, ctx.getIndent()))
     ctx.indent += 1
@@ -337,17 +748,18 @@ proc genStmt*(s: Stmt; ctx: CodegenContext): string =
     # Close block for brace-based languages
     if not ctx.backend.usesIndentation:
       lines.add(ctx.backend.generateBlockEnd(ctx.getIndent()))
+    
+    # Close labeled block
+    if s.whileLabel.len > 0:
+      ctx.indent -= 1
 
     result = lines.join("\n")
 
   of skProc:
     var lines: seq[string] = @[]
 
-    # Get return type as string
-    let returnTypeStr = if s.procReturnType.isNil: "" else: typeToString(s.procReturnType)
-
     # Generate procedure declaration
-    lines.add(ctx.backend.generateProcDecl(s.procName, s.params, returnTypeStr, ctx.getIndent()))
+    lines.add(ctx.backend.generateProcDecl(s.procName, s.params, ctx.getIndent()))
 
     # Generate body
     ctx.indent += 1
@@ -371,7 +783,10 @@ proc genStmt*(s: Stmt; ctx: CodegenContext): string =
     var lines: seq[string] = @[]
     # Note: Block is a Nim-specific construct, may need special handling per backend
     if ctx.backend.usesIndentation:
-      lines.add(ctx.withIndent("block:"))
+      if s.blockLabel.len > 0:
+        lines.add(ctx.withIndent("block " & s.blockLabel & ":"))
+      else:
+        lines.add(ctx.withIndent("block:"))
     else:
       lines.add(ctx.withIndent("{"))
     ctx.indent += 1
@@ -391,8 +806,33 @@ proc genStmt*(s: Stmt; ctx: CodegenContext): string =
 
   of skType:
     # Generate type definition
-    let typeStr = typeToString(s.typeValue)
-    result = ctx.withIndent("type " & s.typeName & " = " & typeStr)
+    case s.typeValue.kind
+    of tkObject:
+      result = ctx.withIndent("type " & s.typeName & " = object")
+      if s.typeValue.objectFields.len > 0:
+        ctx.indent += 1
+        for field in s.typeValue.objectFields:
+          let fieldTypeStr = typeToString(field.fieldType)
+          result &= "\n" & ctx.withIndent(field.name & ": " & fieldTypeStr)
+        ctx.indent -= 1
+    
+    of tkEnum:
+      # Use backend-specific enum generation
+      result = ctx.backend.generateEnumType(s.typeName, s.typeValue.enumValues, ctx.getIndent())
+      # For Python backend, add Enum import if needed (full statement)
+      if ctx.backend.name == "Python" and s.typeValue.enumValues.len > 0:
+        ctx.imports.incl("from enum import Enum")
+    
+    else:
+      result = ctx.withIndent("type " & s.typeName & " = ")
+      let typeStr = typeToString(s.typeValue)
+      result &= typeStr
+
+  of skBreak:
+    result = ctx.backend.generateBreak(s.breakLabel, ctx.getIndent())
+
+  of skContinue:
+    result = ctx.backend.generateContinue(s.continueLabel, ctx.getIndent())
 
 proc genBlock*(stmts: seq[Stmt]; ctx: CodegenContext): string =
   ## Generate code for a sequence of statements
@@ -414,16 +854,23 @@ proc genProgram*(prog: Program; ctx: CodegenContext): string =
   if header.len > 0:
     sections.add(header)
 
-  # Generate imports
+  # Generate main code FIRST (this may add imports)
+  let mainCode = genBlock(prog.stmts, ctx)
+
+  # Generate imports (after main code generation, which may have added imports)
   if ctx.imports.len > 0:
     var importLines: seq[string] = @[]
     for imp in ctx.imports:
-      importLines.add(ctx.backend.generateImport(imp))
+      # Check if it's a full import statement (starts with "from" or "import")
+      if imp.startsWith("from ") or imp.startsWith("import "):
+        importLines.add(imp)
+      else:
+        importLines.add(ctx.backend.generateImport(imp))
     sections.add(importLines.join("\n"))
     sections.add("")  # Blank line after imports
 
-  # Generate main code
-  sections.add(genBlock(prog.stmts, ctx))
+  # Add the main code
+  sections.add(mainCode)
 
   # Generate program footer if needed
   let footer = ctx.backend.generateProgramFooter()
@@ -453,16 +900,16 @@ proc generateNimCode*(prog: Program; ctx: CodegenContext = nil): string =
   result = genProgram(prog, genCtx)
 
 # ------------------------------------------------------------------------------
-# Plugin Integration
+# Extension Integration
 # ------------------------------------------------------------------------------
 
-proc applyPluginCodegen*(plugin: Plugin; ctx: CodegenContext) =
-  ## Apply plugin codegen metadata to a codegen context
+proc applyExtensionCodegen*(ext: CodegenExtension; ctx: CodegenContext) =
+  ## Apply extension codegen metadata to a codegen context
   let backendName = ctx.backend.name
   
-  # Try to use backend-specific mappings first
-  if backendName in plugin.codegen.backends:
-    let mapping = plugin.codegen.backends[backendName]
+  # Use backend-specific mappings
+  if backendName in ext.backends:
+    let mapping = ext.backends[backendName]
     
     # Add backend-specific imports
     for imp in mapping.imports:
@@ -475,30 +922,15 @@ proc applyPluginCodegen*(plugin: Plugin; ctx: CodegenContext) =
     # Add backend-specific constant mappings
     for dslName, targetValue in mapping.constantMappings:
       ctx.addConstantMapping(dslName, targetValue)
-  
-  # Fallback to legacy Nim mappings for backward compatibility
-  elif backendName == "Nim":
-    # Add imports
-    for imp in plugin.codegen.nimImports:
-      ctx.addImport(imp)
 
-    # Add function mappings
-    for dslName, nimCode in plugin.codegen.functionMappings:
-      ctx.addFunctionMapping(dslName, nimCode)
-
-    # Add constant mappings
-    for dslName, nimValue in plugin.codegen.constantMappings:
-      ctx.addConstantMapping(dslName, nimValue)
-
-proc loadPluginsCodegen*(ctx: CodegenContext; registry: PluginRegistry) =
-  ## Load codegen metadata from all plugins in a registry
+proc loadExtensionsCodegen*(ctx: CodegenContext; registry: ExtensionRegistry) =
+  ## Load codegen metadata from all extensions in a registry
   for name in registry.loadOrder:
-    let plugin = registry.plugins[name]
-    if plugin.enabled:
-      applyPluginCodegen(plugin, ctx)
+    let ext = registry.extensions[name]
+    applyExtensionCodegen(ext, ctx)
 
-proc loadPluginsCodegen*(ctx: CodegenContext) =
-  ## Load codegen metadata from global plugin registry
-  if plugin.globalRegistry.isNil:
+proc loadExtensionsCodegen*(ctx: CodegenContext) =
+  ## Load codegen metadata from global extension registry
+  if codegen_ext.globalExtRegistry.isNil:
     return
-  loadPluginsCodegen(ctx, plugin.globalRegistry)
+  loadExtensionsCodegen(ctx, codegen_ext.globalExtRegistry)

@@ -2,7 +2,6 @@
 # Generates native Nim code from Nimini AST
 
 import ../backend
-import ../ast
 import std/strutils
 
 type
@@ -62,8 +61,6 @@ method generateUnaryOp*(backend: NimBackend; op, operand: string): string =
     result = "-(" & operand & ")"
   of "not":
     result = "not (" & operand & ")"
-  of "$":
-    result = "$(" & operand & ")"
   else:
     result = op & "(" & operand & ")"
 
@@ -108,37 +105,27 @@ method generateForLoop*(backend: NimBackend; varName, iterable: string; indent: 
 method generateWhileLoop*(backend: NimBackend; condition: string; indent: string): string =
   result = indent & "while " & condition & ":"
 
-method generateBreak*(backend: NimBackend; label: string; indent: string): string =
-  if label.len > 0:
-    result = indent & "break " & label
-  else:
-    result = indent & "break"
-
-method generateContinue*(backend: NimBackend; label: string; indent: string): string =
-  if label.len > 0:
-    result = indent & "continue " & label
-  else:
-    result = indent & "continue"
-
 # ------------------------------------------------------------------------------
 # Function/Procedure Generation
 # ------------------------------------------------------------------------------
 
-method generateProcDecl*(backend: NimBackend; name: string; params: seq[ProcParam]; indent: string): string =
+method generateProcDecl*(backend: NimBackend; name: string; params: seq[(string, string)]; returnType: string = ""; indent: string = ""): string =
   var paramStrs: seq[string] = @[]
-  for param in params:
-    var paramStr = ""
-    if param.isVar:
-      paramStr = param.name & ": var " & param.paramType
-    elif param.paramType.len > 0:
-      paramStr = param.name & ": " & param.paramType
+  for (pname, ptype) in params:
+    if ptype.len > 0:
+      paramStrs.add(pname & ": " & ptype)
     else:
       # No type specified - Nim will infer or use auto
-      paramStr = param.name
-    paramStrs.add(paramStr)
+      paramStrs.add(pname)
   
   let paramList = paramStrs.join("; ")
-  result = indent & "proc " & name & "(" & paramList & ") ="
+  result = indent & "proc " & name & "(" & paramList & ")"
+  
+  # Add return type if specified
+  if returnType.len > 0:
+    result &= ": " & returnType
+  
+  result &= " ="
 
 method generateReturn*(backend: NimBackend; value: string; indent: string): string =
   result = indent & "return " & value
@@ -152,21 +139,6 @@ method generateImport*(backend: NimBackend; module: string): string =
 
 method generateComment*(backend: NimBackend; text: string; indent: string = ""): string =
   result = indent & "# " & text
-
-# ------------------------------------------------------------------------------
-# Type Generation
-# ------------------------------------------------------------------------------
-
-method generateEnumType*(backend: NimBackend; name: string; values: seq[tuple[name: string, value: int]]; indent: string): string =
-  ## Generate Nim enum type definition
-  result = indent & "type " & name & " = enum"
-  if values.len > 0:
-    for i, enumVal in values:
-      result &= "\n" & indent & "  " & enumVal.name
-      # Show explicit ordinal value if it's not sequential
-      let expectedOrdinal = if i == 0: 0 else: values[i-1].value + 1
-      if enumVal.value != expectedOrdinal:
-        result &= " = " & $enumVal.value
 
 # ------------------------------------------------------------------------------
 # Program Structure

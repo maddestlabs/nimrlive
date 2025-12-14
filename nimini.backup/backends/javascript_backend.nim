@@ -2,7 +2,6 @@
 # Generates JavaScript (ES6+) code from Nimini AST
 
 import ../backend
-import ../ast
 import std/strutils
 
 type
@@ -53,7 +52,6 @@ method generateBinOp*(backend: JavaScriptBackend; left, op, right: string): stri
     of "and": "&&"
     of "or": "||"
     of "%": "%"  # Modulo is the same
-    of "&": "+"  # String concatenation
     else: op
   
   result = "(" & left & " " & jsOp & " " & right & ")"
@@ -64,8 +62,6 @@ method generateUnaryOp*(backend: JavaScriptBackend; op, operand: string): string
     result = "-(" & operand & ")"
   of "not":
     result = "!(" & operand & ")"
-  of "$":
-    result = "String(" & operand & ")"
   else:
     result = op & "(" & operand & ")"
 
@@ -114,28 +110,15 @@ method generateForLoop*(backend: JavaScriptBackend; varName, iterable: string; i
 method generateWhileLoop*(backend: JavaScriptBackend; condition: string; indent: string): string =
   result = indent & "while (" & condition & ") {"
 
-method generateBreak*(backend: JavaScriptBackend; label: string; indent: string): string =
-  if label.len > 0:
-    result = indent & "break " & label & ";"
-  else:
-    result = indent & "break;"
-
-method generateContinue*(backend: JavaScriptBackend; label: string; indent: string): string =
-  if label.len > 0:
-    result = indent & "continue " & label & ";"
-  else:
-    result = indent & "continue;"
-
 # ------------------------------------------------------------------------------
 # Function/Procedure Generation
 # ------------------------------------------------------------------------------
 
-method generateProcDecl*(backend: JavaScriptBackend; name: string; params: seq[ProcParam]; indent: string): string =
+method generateProcDecl*(backend: JavaScriptBackend; name: string; params: seq[(string, string)]; returnType: string = ""; indent: string = ""): string =
   var paramStrs: seq[string] = @[]
-  for param in params:
+  for (pname, ptype) in params:
     # JavaScript doesn't require type annotations
-    # JavaScript passes objects by reference, so var params work naturally
-    paramStrs.add(param.name)
+    paramStrs.add(pname)
   
   let paramList = paramStrs.join(", ")
   result = indent & "function " & name & "(" & paramList & ") {"
@@ -153,22 +136,6 @@ method generateImport*(backend: JavaScriptBackend; module: string): string =
 
 method generateComment*(backend: JavaScriptBackend; text: string; indent: string = ""): string =
   result = indent & "// " & text
-
-# ------------------------------------------------------------------------------
-# Type Generation
-# ------------------------------------------------------------------------------
-
-method generateEnumType*(backend: JavaScriptBackend; name: string; values: seq[tuple[name: string, value: int]]; indent: string): string =
-  ## Generate JavaScript enum using frozen object pattern
-  result = indent & "const " & name & " = Object.freeze({"
-  if values.len > 0:
-    for i, enumVal in values:
-      if i > 0:
-        result &= ","
-      result &= "\n" & indent & "  " & enumVal.name & ": " & $enumVal.value
-    result &= "\n" & indent & "});"
-  else:
-    result &= "});"
 
 # ------------------------------------------------------------------------------
 # Program Structure

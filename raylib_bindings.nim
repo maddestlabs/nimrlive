@@ -4,7 +4,7 @@
 
 import nimini
 import raylib
-import std/[strutils, tables]
+import std/[strutils, tables, math]
 
 # Color constants that persist (not destroyed after registration)
 var rayWhiteColor = RayWhite
@@ -12,7 +12,19 @@ var whiteColor = White
 var blackColor = Black
 var grayColor = Gray
 var darkGrayColor = DarkGray
+var lightGrayColor = LightGray
 var maroonColor = Maroon
+var brownColor = Brown
+var darkGreenColor = DarkGreen
+
+# Helper to safely extract Color from a Value map
+proc getColorFromMap(colorMap: Table[string, Value]): Color =
+  Color(
+    r: if "r" in colorMap: colorMap["r"].i.uint8 else: 0'u8,
+    g: if "g" in colorMap: colorMap["g"].i.uint8 else: 0'u8,
+    b: if "b" in colorMap: colorMap["b"].i.uint8 else: 0'u8,
+    a: if "a" in colorMap: colorMap["a"].i.uint8 else: 255'u8
+  )
 
 proc registerRaylibBindings*() =
   ## Register all naylib/raylib API functions with Nimini runtime
@@ -153,6 +165,61 @@ proc registerRaylibBindings*() =
     valNil()
   )
   
+  # Screen functions
+  registerNative("getScreenWidth", proc(env: ref Env; args: seq[Value]): Value =
+    valInt(getScreenWidth())
+  )
+  
+  registerNative("getScreenHeight", proc(env: ref Env; args: seq[Value]): Value =
+    valInt(getScreenHeight())
+  )
+  
+  # Input functions
+  registerNative("getMousePosition", proc(env: ref Env; args: seq[Value]): Value =
+    let mousePos = getMousePosition()
+    var vecMap = initTable[string, Value]()
+    vecMap["x"] = valFloat(mousePos.x.float)
+    vecMap["y"] = valFloat(mousePos.y.float)
+    valMap(vecMap)
+  )
+  
+  # Collision detection
+  registerNative("checkCollisionPointCircle", proc(env: ref Env; args: seq[Value]): Value =
+    # checkCollisionPointCircle(point: Vector2, center: Vector2, radius: float32): bool
+    var point: Vector2
+    var center: Vector2
+    
+    if args[0].kind == vkMap:
+      point = Vector2(x: args[0].map["x"].f.float32, y: args[0].map["y"].f.float32)
+    else:
+      let pointPtr = cast[ptr Vector2](args[0].ptrVal)
+      point = pointPtr[]
+    
+    if args[1].kind == vkMap:
+      center = Vector2(x: args[1].map["x"].f.float32, y: args[1].map["y"].f.float32)
+    else:
+      let centerPtr = cast[ptr Vector2](args[1].ptrVal)
+      center = centerPtr[]
+    
+    let radius = args[2].f.float32
+    valBool(checkCollisionPointCircle(point, center, radius))
+  )
+  
+  # Math functions
+  registerNative("arctan2", proc(env: ref Env; args: seq[Value]): Value =
+    let y = args[0].f
+    let x = args[1].f
+    valFloat(arctan2(y, x))
+  )
+  
+  registerNative("cos", proc(env: ref Env; args: seq[Value]): Value =
+    valFloat(cos(args[0].f))
+  )
+  
+  registerNative("sin", proc(env: ref Env; args: seq[Value]): Value =
+    valFloat(sin(args[0].f))
+  )
+  
   # Drawing functions
   registerNative("beginDrawing", proc(env: ref Env; args: seq[Value]): Value =
     beginDrawing()
@@ -173,12 +240,7 @@ proc registerRaylibBindings*() =
         clearBackground(colorPtr[])
       else:
         # Construct from map fields
-        let color = Color(
-          r: args[0].map["r"].i.uint8,
-          g: args[0].map["g"].i.uint8,
-          b: args[0].map["b"].i.uint8,
-          a: args[0].map["a"].i.uint8
-        )
+        let color = getColorFromMap(args[0].map)
         clearBackground(color)
     else:
       # Legacy: pointer value
@@ -198,12 +260,7 @@ proc registerRaylibBindings*() =
         let colorPtr = cast[ptr Color](args[4].map["_ptr"].ptrVal)
         drawText(text, posX, posY, fontSize, colorPtr[])
       else:
-        let color = Color(
-          r: args[4].map["r"].i.uint8,
-          g: args[4].map["g"].i.uint8,
-          b: args[4].map["b"].i.uint8,
-          a: args[4].map["a"].i.uint8
-        )
+        let color = getColorFromMap(args[4].map)
         drawText(text, posX, posY, fontSize, color)
     else:
       let colorPtr = cast[ptr Color](args[4].ptrVal)
@@ -237,12 +294,7 @@ proc registerRaylibBindings*() =
         let colorPtr = cast[ptr Color](args[2].map["_ptr"].ptrVal)
         drawCircle(position, radius, colorPtr[])
       else:
-        let color = Color(
-          r: args[2].map["r"].i.uint8,
-          g: args[2].map["g"].i.uint8,
-          b: args[2].map["b"].i.uint8,
-          a: args[2].map["a"].i.uint8
-        )
+        let color = getColorFromMap(args[2].map)
         drawCircle(position, radius, color)
     else:
       let colorPtr = cast[ptr Color](args[2].ptrVal)
@@ -260,12 +312,7 @@ proc registerRaylibBindings*() =
         let colorPtr = cast[ptr Color](args[3].map["_ptr"].ptrVal)
         drawCircleLines(centerX, centerY, radius, colorPtr[])
       else:
-        let color = Color(
-          r: args[3].map["r"].i.uint8,
-          g: args[3].map["g"].i.uint8,
-          b: args[3].map["b"].i.uint8,
-          a: args[3].map["a"].i.uint8
-        )
+        let color = getColorFromMap(args[3].map)
         drawCircleLines(centerX, centerY, radius, color)
     else:
       let colorPtr = cast[ptr Color](args[3].ptrVal)
@@ -283,12 +330,7 @@ proc registerRaylibBindings*() =
         let colorPtr = cast[ptr Color](args[0].map["_ptr"].ptrVal)
         fadedColor = fade(colorPtr[], alpha)
       else:
-        let color = Color(
-          r: args[0].map["r"].i.uint8,
-          g: args[0].map["g"].i.uint8,
-          b: args[0].map["b"].i.uint8,
-          a: args[0].map["a"].i.uint8
-        )
+        let color = getColorFromMap(args[0].map)
         fadedColor = fade(color, alpha)
     else:
       let colorPtr = cast[ptr Color](args[0].ptrVal)
@@ -358,6 +400,33 @@ proc registerRaylibBindings*() =
     colorMap["a"] = valInt(maroonColor.a.int)
     colorMap["_ptr"] = valPointer(addr maroonColor)
     defineVar(runtimeEnv, "Maroon", valMap(colorMap))
+  
+  block:
+    var colorMap = initTable[string, Value]()
+    colorMap["r"] = valInt(lightGrayColor.r.int)
+    colorMap["g"] = valInt(lightGrayColor.g.int)
+    colorMap["b"] = valInt(lightGrayColor.b.int)
+    colorMap["a"] = valInt(lightGrayColor.a.int)
+    colorMap["_ptr"] = valPointer(addr lightGrayColor)
+    defineVar(runtimeEnv, "LightGray", valMap(colorMap))
+  
+  block:
+    var colorMap = initTable[string, Value]()
+    colorMap["r"] = valInt(brownColor.r.int)
+    colorMap["g"] = valInt(brownColor.g.int)
+    colorMap["b"] = valInt(brownColor.b.int)
+    colorMap["a"] = valInt(brownColor.a.int)
+    colorMap["_ptr"] = valPointer(addr brownColor)
+    defineVar(runtimeEnv, "Brown", valMap(colorMap))
+  
+  block:
+    var colorMap = initTable[string, Value]()
+    colorMap["r"] = valInt(darkGreenColor.r.int)
+    colorMap["g"] = valInt(darkGreenColor.g.int)
+    colorMap["b"] = valInt(darkGreenColor.b.int)
+    colorMap["a"] = valInt(darkGreenColor.a.int)
+    colorMap["_ptr"] = valPointer(addr darkGreenColor)
+    defineVar(runtimeEnv, "DarkGreen", valMap(colorMap))
   
   # Vector2 type constructor
   # Note: This requires more sophisticated type support in Nimini

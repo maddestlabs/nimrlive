@@ -18,6 +18,36 @@ var greenColor = Green
 var blueColor = Blue
 var yellowColor = Yellow
 
+# Helper to safely extract Color from a Value map
+proc getColorFromMap(colorMap: Table[string, Value]): Color =
+  # Debug: print what keys we have
+  var keys: seq[string] = @[]
+  for k in colorMap.keys:
+    keys.add(k)
+  echo "DEBUG getColorFromMap: keys=", keys
+  
+  # Safe access with detailed debugging
+  let r = if "r" in colorMap: 
+    echo "  r kind=", colorMap["r"].kind, " val=", colorMap["r"]
+    colorMap["r"].i.uint8 
+  else: 0'u8
+  let g = if "g" in colorMap: 
+    echo "  g kind=", colorMap["g"].kind, " val=", colorMap["g"]
+    colorMap["g"].i.uint8 
+  else: 0'u8
+  let b = if "b" in colorMap: 
+    echo "  b kind=", colorMap["b"].kind, " val=", colorMap["b"]
+    colorMap["b"].i.uint8 
+  else: 0'u8
+  let a = if "a" in colorMap: 
+    echo "  a kind=", colorMap["a"].kind, " val=", colorMap["a"]
+    colorMap["a"].i.uint8 
+  else: 255'u8
+  
+  echo "DEBUG getColorFromMap: r=", r.int, " g=", g.int, " b=", b.int, " a=", a.int
+  
+  Color(r: r, g: g, b: b, a: a)
+
 proc registerRaylibBindings*() =
   ## Register minimal raylib API functions with Nimini runtime
   ## Minimal: window, 2D shapes, text, colors only
@@ -37,6 +67,23 @@ proc registerRaylibBindings*() =
     of vkFloat: args[0]
     of vkString: valFloat(parseFloat(args[0].s))
     else: valFloat(0.0)
+  )
+  
+  registerNative("uint8", proc(env: ref Env; args: seq[Value]): Value =
+    # Convert to uint8 by clamping to 0..255 range and returning as int
+    case args[0].kind
+    of vkInt: valInt(max(0, min(255, args[0].i)))
+    of vkFloat: valInt(max(0, min(255, args[0].f.int)))
+    of vkString: valInt(max(0, min(255, parseInt(args[0].s))))
+    else: valInt(0)
+  )
+  
+  registerNative("int32", proc(env: ref Env; args: seq[Value]): Value =
+    case args[0].kind
+    of vkInt: args[0]
+    of vkFloat: valInt(args[0].f.int)
+    of vkString: valInt(parseInt(args[0].s))
+    else: valInt(0)
   )
   
   registerNative("string", proc(env: ref Env; args: seq[Value]): Value =
@@ -88,12 +135,7 @@ proc registerRaylibBindings*() =
         let colorPtr = cast[ptr Color](args[0].map["_ptr"].ptrVal)
         clearBackground(colorPtr[])
       else:
-        let color = Color(
-          r: args[0].map["r"].i.uint8,
-          g: args[0].map["g"].i.uint8,
-          b: args[0].map["b"].i.uint8,
-          a: args[0].map["a"].i.uint8
-        )
+        let color = getColorFromMap(args[0].map)
         clearBackground(color)
     else:
       let colorPtr = cast[ptr Color](args[0].ptrVal)
@@ -112,12 +154,7 @@ proc registerRaylibBindings*() =
         let colorPtr = cast[ptr Color](args[4].map["_ptr"].ptrVal)
         drawText(text, posX, posY, fontSize, colorPtr[])
       else:
-        let color = Color(
-          r: args[4].map["r"].i.uint8,
-          g: args[4].map["g"].i.uint8,
-          b: args[4].map["b"].i.uint8,
-          a: args[4].map["a"].i.uint8
-        )
+        let color = getColorFromMap(args[4].map)
         drawText(text, posX, posY, fontSize, color)
     else:
       let colorPtr = cast[ptr Color](args[4].ptrVal)
@@ -148,12 +185,7 @@ proc registerRaylibBindings*() =
         let colorPtr = cast[ptr Color](args[2].map["_ptr"].ptrVal)
         drawCircle(position, radius, colorPtr[])
       else:
-        let color = Color(
-          r: args[2].map["r"].i.uint8,
-          g: args[2].map["g"].i.uint8,
-          b: args[2].map["b"].i.uint8,
-          a: args[2].map["a"].i.uint8
-        )
+        let color = getColorFromMap(args[2].map)
         drawCircle(position, radius, color)
     else:
       let colorPtr = cast[ptr Color](args[2].ptrVal)
@@ -170,12 +202,7 @@ proc registerRaylibBindings*() =
         let colorPtr = cast[ptr Color](args[3].map["_ptr"].ptrVal)
         drawCircleLines(centerX, centerY, radius, colorPtr[])
       else:
-        let color = Color(
-          r: args[3].map["r"].i.uint8,
-          g: args[3].map["g"].i.uint8,
-          b: args[3].map["b"].i.uint8,
-          a: args[3].map["a"].i.uint8
-        )
+        let color = getColorFromMap(args[3].map)
         drawCircleLines(centerX, centerY, radius, color)
     else:
       let colorPtr = cast[ptr Color](args[3].ptrVal)
@@ -194,12 +221,7 @@ proc registerRaylibBindings*() =
         let colorPtr = cast[ptr Color](args[4].map["_ptr"].ptrVal)
         drawRectangle(x, y, width, height, colorPtr[])
       else:
-        let color = Color(
-          r: args[4].map["r"].i.uint8,
-          g: args[4].map["g"].i.uint8,
-          b: args[4].map["b"].i.uint8,
-          a: args[4].map["a"].i.uint8
-        )
+        let color = getColorFromMap(args[4].map)
         drawRectangle(x, y, width, height, color)
     else:
       let colorPtr = cast[ptr Color](args[4].ptrVal)
@@ -216,12 +238,7 @@ proc registerRaylibBindings*() =
         let colorPtr = cast[ptr Color](args[0].map["_ptr"].ptrVal)
         fadedColor = fade(colorPtr[], alpha)
       else:
-        let color = Color(
-          r: args[0].map["r"].i.uint8,
-          g: args[0].map["g"].i.uint8,
-          b: args[0].map["b"].i.uint8,
-          a: args[0].map["a"].i.uint8
-        )
+        let color = getColorFromMap(args[0].map)
         fadedColor = fade(color, alpha)
     else:
       let colorPtr = cast[ptr Color](args[0].ptrVal)

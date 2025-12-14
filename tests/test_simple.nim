@@ -1,10 +1,26 @@
-# Simple test script that doesn't require a window
+## Simple test for headless execution
+## This tests basic raylib function calls without complex types
 
-echo "Hello from nimrlive command line!"
-echo "Script loaded and executed successfully!"
+# Initialize the window
+initWindow(800, 450, "Nimini Test")
+setTargetFPS(60)
 
-let x = 10
-let y = 20
-let result = x + y
+# Simple variable
+var counter = 0
 
-echo "10 + 20 = ", result
+# Main game loop
+while not windowShouldClose():
+  # Update
+  counter = counter + 1
+  
+  # Draw
+  beginDrawing()
+  clearBackground(RAYWHITE)
+  
+  drawText("Hello from Nimini!", 10, 10, 20, BLACK)
+  drawCircle(400, 225, 50.0, RED)
+  drawFPS(10, 40)
+  
+  endDrawing()
+
+closeWindow()

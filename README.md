@@ -1,8 +1,12 @@
 # NimRLive
 
-Live Nim scripting with raylib on the web. Write raylib code in Nim, run it instantly in your browser using Nimini scripting engine. Built around GitHub Gists - no installation required.
+Live Nim scripting with raylib on the web. Write [raylib](https://www.raylib.com/) code in [Nim](https://nim-lang.org/), run it instantly in your browser using [Nimini](https://github.com/maddestlabs/nimini) scripting engine. Built around GitHub Gists - no installation required.
 
 Check it out live: **[Demo](https://maddestlabs.github.io/nimrlive/)**
+
+Examples on GitHub Gist:
+- [nimr_eyes.nim](https://maddestlabs.github.io/tstorie?gist=9b0aee2ba116791b092f1b238975c295) | [Source Gist](https://gist.github.com/R3V1Z3/9b0aee2ba116791b092f1b238975c295)
+- [nimr_ball.nim](https://maddestlabs.github.io/tstorie?gist=9da9160a65563ba711bfc68fd6f01c83) | [Source Gist](https://gist.github.com/R3V1Z3/9da9160a65563ba711bfc68fd6f01c83)
 
 ## Quick Start
 
@@ -10,12 +14,6 @@ Check it out live: **[Demo](https://maddestlabs.github.io/nimrlive/)**
 
 - Create a [gist](https://gist.github.com/) with your raylib Nim code.
 - See your gist code running live at `https://maddestlabs.github.io/nimrlive?gist=GistID`.
-
-### Make it Your Own
-
-- Create a project from Nimr template.
-- Edit `nimr.nim` (or create new `.nim` files) and save your changes.
-- Enable GitHub Pages to see your changes live.
 
 ### Run Locally
 
@@ -31,6 +29,8 @@ nim c -r nimrlive.nim
 
 - **Live Scripting**: Execute Nim code dynamically using [Nimini](https://github.com/maddestlabs/nimini/) scripting engine
 - **GitHub Gist Integration**: Load and run scripts directly from GitHub Gists via URL parameters
+- **Headless Testing**: Test code in containers without display servers (perfect for CI/CD)
+- **Local Testing**: Quick iteration with `./test.sh` - no WASM build needed
 - **Native + WASM**: Develop locally with native compilation, deploy to web with WASM
 - **Built on**: [Nim](https://nim-lang.org) + [naylib](https://github.com/planetis-m/naylib) + [raylib](https://www.raylib.com)
 - **Auto-Deploy**: GitHub Actions automatically compiles and deploys to GitHub Pages
@@ -50,7 +50,7 @@ nim c -r nimrlive.nim
 **Native Development:**
 ```bash
 # Run any Nim script with raylib
-nimrlive examples/bouncing_ball.nim
+nimrlive examples/nimr_ball.nim
 
 # Default runs nimr.nim
 nimrlive
